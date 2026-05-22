@@ -19,7 +19,7 @@ function copyCname(): Plugin {
 
 export default defineConfig({
   root: dirname,
-  base: './',
+  base: '/',
   publicDir: path.resolve(dirname, 'public'),
   plugins: [react(), copyCname()],
   resolve: {
