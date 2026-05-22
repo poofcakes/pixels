@@ -1,29 +1,39 @@
 # Pixel Pattern Maker
 
-Standalone static build of the bead pattern generator.
+GitHub repo for `https://pixels.poofcakes.com/`.
 
-The app reuses code from the main site (`src/components`, `src/lib`, `messages`)
-via Vite aliases — it is not a second copy of the generator. Static assets
-(example images) live in the repo root `public/` folder only.
+## GitHub Actions (recommended)
 
-## Local Preview
+Push to `main` and Actions builds + deploys automatically. No need to commit
+`docs/` or run Vite locally before every deploy.
+
+**One-time setup**
+
+1. Settings → Pages → Build and deployment → Source: **GitHub Actions**
+2. Custom domain: **pixels.poofcakes.com** (set in Pages settings; `public/CNAME`
+   is copied into each build)
+
+Workflow: `.github/workflows/pages.yml` — checks out this repo, runs
+`npm run pages`, deploys the `docs/` artifact.
+
+## Local development
+
+From this directory:
 
 ```sh
-npm run pixels:dev
+npm install
+npm run dev
+npm run build
+npm run preview
 ```
 
-## Static Build
+`npm run pages` builds and syncs `dist/` to `docs/` for the Actions artifact.
 
-```sh
-npm run pixels:build
-npm run pixels:preview
-```
+## Manual deploy (without Actions)
 
-The Vite build uses `base: './'`, so generated CSS and JS assets are relative to
-`index.html`. The same `dist/` output can be served from either:
+If you publish from a branch instead of Actions:
 
-- `https://poofcakes.github.io/pixels/`
-- `https://pixels.poofcakes.com/`
+1. Pages source: **main**, folder **/docs** (not repo root)
+2. `npm run pages`, commit `docs/`, push
 
-`public/CNAME` is copied into `dist/` for the custom domain when publishing this
-as a GitHub Pages project site.
+Root `index.html` is dev-only (`./src/main.tsx`); never publish from `/ (root)`.

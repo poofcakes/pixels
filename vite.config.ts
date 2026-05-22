@@ -20,11 +20,11 @@ function copyCname(): Plugin {
 export default defineConfig({
   root: dirname,
   base: './',
-  publicDir: path.resolve(dirname, '../public'),
+  publicDir: path.resolve(dirname, 'public'),
   plugins: [react(), copyCname()],
   resolve: {
     alias: {
-      '@': path.resolve(dirname, '../src'),
+      '@': path.resolve(dirname, 'src'),
       'next-intl': path.resolve(dirname, './src/next-intl-shim.tsx'),
     },
   },

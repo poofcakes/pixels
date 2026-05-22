@@ -1,0 +1,73 @@
+/**
+ * Perler bead colours (2026 revised chart on pixel-beads.com).
+ * @see https://www.pixel-beads.com/perler-bead-color-chart
+ */
+import type { BeadColor } from './types'
+
+const entries: readonly (readonly [string, string, string])[] = [
+  ['P01', '#F1F1F1', 'White'],
+  ['P81', '#EEE3CF', 'Light Gray'],
+  ['P17', '#8A8D91', 'Grey'],
+  ['P105', '#777B81', 'Silver'],
+  ['P92', '#4D5156', 'Dark Grey'],
+  ['P18', '#2E2F32', 'Black'],
+  ['P100', '#F97E79', 'Pearl Coral'],
+  ['P104', '#D7A8A2', 'Pearl Light Pink'],
+  ['P20', '#8C372C', 'Rust'],
+  ['P33', '#EEBAB2', 'Peach'],
+  ['P12', '#513931', 'Brown'],
+  ['P04', '#ED6120', 'Orange'],
+  ['P35', '#BC9371', 'Tan'],
+  ['P98', '#E4B690', 'Sand'],
+  ['P48', '#FF7700', 'Neon Orange'],
+  ['P85', '#BB7634', 'Gold'],
+  ['P90', '#D48437', 'Butterscotch'],
+  ['P21', '#815D34', 'Light Brown'],
+  ['P57', '#F1AA0C', 'Cheddar'],
+  ['P03', '#ECD800', 'Yellow'],
+  ['P103', '#CAC033', 'Pearl Yellow'],
+  ['P02', '#E0DEA9', 'Cream'],
+  ['P56', '#FEF875', 'Pastel Yellow'],
+  ['P47', '#DCE002', 'Neon Yellow'],
+  ['P97', '#BDDA01', 'Prickly Pear'],
+  ['P75', '#BEC696', 'Glow Green'],
+  ['P61', '#6CBE13', 'Kiwi Lime'],
+  ['P80', '#4FAD42', 'Bright Green'],
+  ['P53', '#76C882', 'Pastel Green'],
+  ['P102', '#84B791', 'Pearl Green'],
+  ['P10', '#1C753E', 'Dark Green'],
+  ['P49', '#019E43', 'Neon Green'],
+  ['P179', '#114938', 'Evergreen'],
+  ['P11', '#56BA9F', 'Light Green'],
+  ['P101', '#7AAEA2', 'Pearl Light Blue'],
+  ['P91', '#067C81', 'Parrot Green'],
+  ['P58', '#93C8D4', 'Toothpaste'],
+  ['P52', '#5390D1', 'Pastel Blue'],
+  ['P09', '#3370C0', 'Light Blue'],
+  ['P70', '#647CBE', 'Periwinkle Blue'],
+  ['P93', '#8297D9', 'Blueberry Cream'],
+  ['P08', '#2B3F87', 'Dark Blue'],
+  ['P54', '#8A72C1', 'Pastel Lavender'],
+  ['P07', '#604089', 'Purple'],
+  ['P60', '#A24B9C', 'Plum'],
+  ['P79', '#F6B3DD', 'Light Pink'],
+  ['P83', '#E44892', 'Pink'],
+  ['P06', '#DD669B', 'Bubblegum'],
+  ['P50', '#FF3991', 'Neon Pink'],
+  ['P88', '#A53061', 'Raspberry'],
+  ['P38', '#F22A7B', 'Magenta'],
+  ['P96', '#801922', 'Cranapple'],
+  ['P05', '#F01820', 'Red'],
+  ['P59', '#FF3851', 'Hot Coral'],
+  ['P63', '#FF8285', 'Blush'],
+  ['P62', '#2B89C6', 'Turquoise'],
+  ['P82', '#AD98D4', 'Light Lavender'],
+] as const
+
+export const PERLER_COLORS: readonly BeadColor[] = entries.map(([code, hex, name]) => ({
+  code,
+  hex: hex.toUpperCase(),
+  name,
+}))
+
+export const PERLER_COLOR_COUNT = PERLER_COLORS.length

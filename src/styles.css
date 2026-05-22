@@ -1,7 +1,5 @@
 @import 'tailwindcss';
 
-@source "../../src/components";
-@source "../../src/lib";
 @source "./";
 
 :root {

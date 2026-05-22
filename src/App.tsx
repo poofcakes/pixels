@@ -1,4 +1,4 @@
-import messages from '../../messages/en.json'
+import messages from '../messages/en.json'
 import { PatternMakerPage } from '@/components/PatternMakerPage'
 import { NextIntlClientProvider } from './next-intl-shim'
 

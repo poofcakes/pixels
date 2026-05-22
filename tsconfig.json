@@ -10,7 +10,7 @@
     "moduleResolution": "Bundler",
     "noEmit": true,
     "paths": {
-      "@/*": ["../src/*"],
+      "@/*": ["./src/*"],
       "next-intl": ["./src/next-intl-shim.tsx"]
     },
     "resolveJsonModule": true,
@@ -19,5 +19,5 @@
     "target": "ES2022",
     "types": ["vite/client"]
   },
-  "include": ["src", "../src/components", "../src/lib", "../messages/en.json"]
+  "include": ["src", "messages/en.json"]
 }
