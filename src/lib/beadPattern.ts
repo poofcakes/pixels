@@ -1371,13 +1371,10 @@ export async function renderPatternExportToCanvas(
     ctx.fillText('Poof Pixels Pattern', padding, 42)
   }
 
-  ctx.font = '700 22px ui-sans-serif, system-ui, sans-serif'
-  ctx.textAlign = 'right'
-  ctx.fillStyle = EXPORT_THEME.pink
-  ctx.fillText('@poofpixels', sheetW - padding, 46)
   ctx.font = '600 18px ui-sans-serif, system-ui, sans-serif'
+  ctx.textAlign = 'right'
   ctx.fillStyle = EXPORT_THEME.muted
-  ctx.fillText('pixels.poofcakes.com', sheetW - padding, 78)
+  ctx.fillText('pixels.poofcakes.com', sheetW - padding, 58)
 
   ctx.fillStyle = EXPORT_THEME.deepPurple
   ctx.textAlign = 'left'
