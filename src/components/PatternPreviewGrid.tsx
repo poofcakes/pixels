@@ -21,6 +21,8 @@ import {
 import { shouldUseCanvasPreview } from '@/lib/patternPerformance'
 import { cn } from '@/lib/utils'
 
+import type { StudioTool } from '@/components/patternStudioTypes'
+
 import { PatternCanvasGrid } from './PatternCanvasGrid'
 
 type PatternPreviewGridProps = {
@@ -33,6 +35,10 @@ type PatternPreviewGridProps = {
   hovered: { x: number; y: number } | null
   onHover: (cell: { x: number; y: number } | null) => void
   onSelectCode: (code: string) => void
+  studioTool?: StudioTool
+  onCellAction?: (x: number, y: number) => void
+  onPaintStart?: () => void
+  isPainting?: () => boolean
 }
 
 export function PatternPreviewGrid({
@@ -45,8 +51,14 @@ export function PatternPreviewGrid({
   hovered,
   onHover,
   onSelectCode,
+  studioTool,
+  onCellAction,
+  onPaintStart,
+  isPainting,
 }: PatternPreviewGridProps) {
   const cellCount = pattern.width * pattern.height
+  const canEditCells = Boolean(studioTool && studioTool !== 'select' && onCellAction)
+  const canDragPaint = studioTool === 'brush' || studioTool === 'eraser'
 
   if (shouldUseCanvasPreview(cellCount)) {
     return (
@@ -60,6 +72,10 @@ export function PatternPreviewGrid({
         hovered={hovered}
         onHover={onHover}
         onSelectCode={onSelectCode}
+        studioTool={studioTool}
+        onCellAction={onCellAction}
+        onPaintStart={onPaintStart}
+        isPainting={isPainting}
       />
     )
   }
@@ -69,6 +85,26 @@ export function PatternPreviewGrid({
   const colStep = rulerLabelStep(pattern.width)
   const rowStep = rulerLabelStep(pattern.height)
   const gap = 1
+  const boardSize = gridDisplay.boardSize && gridDisplay.boardSize > 0 ? gridDisplay.boardSize : null
+  const boardColumnLines = boardSize
+    ? Array.from({ length: Math.ceil(pattern.width / boardSize) - 1 }, (_, i) => (i + 1) * boardSize)
+    : []
+  const boardRowLines = boardSize
+    ? Array.from({ length: Math.ceil(pattern.height / boardSize) - 1 }, (_, i) => (i + 1) * boardSize)
+    : []
+  const guideColumnLines = Array.from(
+    { length: Math.ceil(pattern.width / 5) - 1 },
+    (_, i) => (i + 1) * 5,
+  )
+  const guideRowLines = Array.from(
+    { length: Math.ceil(pattern.height / 5) - 1 },
+    (_, i) => (i + 1) * 5,
+  )
+  const gridPixelWidth = pattern.width * cellPx + Math.max(0, pattern.width - 1) * gap
+  const gridPixelHeight = pattern.height * cellPx + Math.max(0, pattern.height - 1) * gap
+  const guideLineClass = gridDisplay.showGridGuidesOnTop
+    ? 'bg-white/80 z-[25] shadow-[0_0_0_1px_rgba(0,0,0,0.25)]'
+    : 'bg-white/75 z-[5]'
 
   return (
     <div className="inline-block">
@@ -142,9 +178,11 @@ export function PatternPreviewGrid({
         </div>
 
         <div
-          className="inline-grid gap-px"
+          className="relative isolate inline-grid gap-px"
           style={{
             gridTemplateColumns: `repeat(${pattern.width}, ${cellPx}px)`,
+            width: gridPixelWidth,
+            height: gridPixelHeight,
           }}
           onMouseLeave={() => onHover(null)}
         >
@@ -153,6 +191,9 @@ export function PatternPreviewGrid({
             const codeLabel = cellLabel(cell, gridDisplay.label)
             const lumHex = luminanceHexForCell(cell, usePaletteColors)
             const isComplete = Boolean(cell.bead && completedCodes.has(cell.bead.code))
+            const isDimmedBySelection = Boolean(
+              selectedCode && cell.bead && cell.bead.code !== selectedCode,
+            )
 
             return (
               <div
@@ -162,20 +203,38 @@ export function PatternPreviewGrid({
                     ? `${cell.bead.code} · ${cell.bead.hex} · row ${cell.y + 1}, col ${cell.x + 1}`
                     : undefined
                 }
-                onMouseEnter={() => onHover({ x: cell.x, y: cell.y })}
-                onClick={() => cell.bead && onSelectCode(cell.bead.code)}
+                onMouseEnter={() => {
+                  onHover({ x: cell.x, y: cell.y })
+                  if (canDragPaint && isPainting?.()) {
+                    onCellAction?.(cell.x, cell.y)
+                  }
+                }}
+                onPointerDown={(e) => {
+                  if (!canEditCells) {
+                    if (cell.bead) onSelectCode(cell.bead.code)
+                    return
+                  }
+                  e.preventDefault()
+                  onPaintStart?.()
+                  onCellAction?.(cell.x, cell.y)
+                }}
+                onClick={() => {
+                  if (canEditCells) return
+                  if (cell.bead) onSelectCode(cell.bead.code)
+                }}
                 className={cn(
                   'relative box-border shrink-0 font-mono leading-none',
-                  cell.bead && 'cursor-pointer',
-                  isComplete && 'opacity-50 saturate-[0.35]',
+                  fill && 'z-10',
+                  canEditCells ? 'cursor-crosshair' : cell.bead && 'cursor-pointer',
+                  isDimmedBySelection && 'opacity-85 saturate-[0.92]',
                   !fill &&
                     'bg-[repeating-conic-gradient(#ddd8d2_0%_25%,#e8e4df_0%_50%)] bg-[length:8px_8px]',
                   hovered?.x === cell.x &&
                     hovered?.y === cell.y &&
-                    'z-10 ring-2 ring-white ring-offset-1 ring-offset-[#1a1814]',
+                    'z-10 ring-1 ring-inset ring-white',
                   cell.bead &&
                     selectedCode === cell.bead.code &&
-                    'z-10 ring-2 ring-[var(--accent)] ring-offset-1 ring-offset-[#1a1814]',
+                    'z-10 ring-2 ring-inset ring-white shadow-[inset_0_0_0_1px_rgba(20,20,20,0.7)]',
                 )}
                 style={{
                   width: cellPx,
@@ -211,6 +270,90 @@ export function PatternPreviewGrid({
               </div>
             )
           })}
+          {gridDisplay.showGridGuidesOnTop
+            ? guideColumnLines.map((x) => (
+                <span
+                  key={`guide-col-${x}`}
+                  className={cn('pointer-events-none absolute top-0 w-0.5', guideLineClass)}
+                  style={{
+                    left: x * cellPx + (x - 0.5) * gap,
+                    height: gridPixelHeight,
+                  }}
+                  aria-hidden
+                />
+              ))
+            : guideColumnLines.flatMap((x) =>
+                Array.from({ length: pattern.height }, (_, y) => {
+                  const left = pattern.cells[y * pattern.width + x - 1]?.bead
+                  const right = pattern.cells[y * pattern.width + x]?.bead
+                  if (left || right) return null
+                  return (
+                    <span
+                      key={`guide-col-${x}-${y}`}
+                      className={cn('pointer-events-none absolute top-0 w-px', guideLineClass)}
+                      style={{
+                        left: x * cellPx + (x - 1) * gap,
+                        top: y * (cellPx + gap),
+                        height: cellPx,
+                      }}
+                      aria-hidden
+                    />
+                  )
+                }),
+              )}
+          {gridDisplay.showGridGuidesOnTop
+            ? guideRowLines.map((y) => (
+                <span
+                  key={`guide-row-${y}`}
+                  className={cn('pointer-events-none absolute left-0 h-0.5', guideLineClass)}
+                  style={{
+                    top: y * cellPx + (y - 0.5) * gap,
+                    width: gridPixelWidth,
+                  }}
+                  aria-hidden
+                />
+              ))
+            : guideRowLines.flatMap((y) =>
+                Array.from({ length: pattern.width }, (_, x) => {
+                  const above = pattern.cells[(y - 1) * pattern.width + x]?.bead
+                  const below = pattern.cells[y * pattern.width + x]?.bead
+                  if (above || below) return null
+                  return (
+                    <span
+                      key={`guide-row-${y}-${x}`}
+                      className={cn('pointer-events-none absolute left-0 h-px', guideLineClass)}
+                      style={{
+                        left: x * (cellPx + gap),
+                        top: y * cellPx + (y - 1) * gap,
+                        width: cellPx,
+                      }}
+                      aria-hidden
+                    />
+                  )
+                }),
+              )}
+          {boardColumnLines.map((x) => (
+            <span
+              key={`board-col-${x}`}
+              className="pointer-events-none absolute top-0 z-30 w-0.5 bg-white/75"
+              style={{
+                left: x * cellPx + (x - 0.5) * gap,
+                height: gridPixelHeight,
+              }}
+              aria-hidden
+            />
+          ))}
+          {boardRowLines.map((y) => (
+            <span
+              key={`board-row-${y}`}
+              className="pointer-events-none absolute left-0 z-30 h-0.5 bg-white/75"
+              style={{
+                top: y * cellPx + (y - 0.5) * gap,
+                width: gridPixelWidth,
+              }}
+              aria-hidden
+            />
+          ))}
         </div>
       </div>
     </div>

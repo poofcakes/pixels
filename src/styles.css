@@ -3,12 +3,12 @@
 @source "./";
 
 :root {
-  --background: #faf8f5;
-  --foreground: #1a1814;
-  --accent: #e07a5f;
-  --accent-muted: #f4d35e;
+  --background: #fcf7fb;
+  --foreground: #20182f;
+  --accent: #ea7ab8;
+  --accent-muted: #4f3a8a;
   --card: #ffffff;
-  --muted: #6b6560;
+  --muted: #6c6178;
 }
 
 @theme inline {

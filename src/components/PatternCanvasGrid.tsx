@@ -13,6 +13,7 @@ import {
   rulerLabelStep,
   shouldShowRulerLabel,
 } from '@/lib/patternRuler'
+import type { StudioTool } from '@/components/patternStudioTypes'
 import { cn } from '@/lib/utils'
 
 type PatternCanvasGridProps = {
@@ -25,6 +26,10 @@ type PatternCanvasGridProps = {
   hovered: { x: number; y: number } | null
   onHover: (cell: { x: number; y: number } | null) => void
   onSelectCode: (code: string) => void
+  studioTool?: StudioTool
+  onCellAction?: (x: number, y: number) => void
+  onPaintStart?: () => void
+  isPainting?: () => boolean
 }
 
 export function PatternCanvasGrid({
@@ -37,8 +42,14 @@ export function PatternCanvasGrid({
   hovered,
   onHover,
   onSelectCode,
+  studioTool,
+  onCellAction,
+  onPaintStart,
+  isPainting,
 }: PatternCanvasGridProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const canEditCells = Boolean(studioTool && studioTool !== 'select' && onCellAction)
+  const canDragPaint = studioTool === 'brush' || studioTool === 'eraser'
   const rulerSize = rulerBandSize(cellPx)
   const labelSize = rulerFontSize(cellPx)
   const colStep = rulerLabelStep(pattern.width)
@@ -99,11 +110,34 @@ export function PatternCanvasGrid({
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       const cell = cellAt(e.clientX, e.clientY)
       if (!cell) return
+      if (canEditCells) {
+        onPaintStart?.()
+        onCellAction?.(cell.x, cell.y)
+        return
+      }
       const idx = cell.y * pattern.width + cell.x
       const bead = pattern.cells[idx]?.bead
       if (bead) onSelectCode(bead.code)
     },
-    [cellAt, onSelectCode, pattern.cells, pattern.width],
+    [
+      cellAt,
+      onSelectCode,
+      onCellAction,
+      onPaintStart,
+      pattern.cells,
+      pattern.width,
+      canEditCells,
+    ],
+  )
+
+  const onPointerMovePaint = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      onPointerMove(e)
+      if (!canDragPaint || !isPainting?.()) return
+      const cell = cellAt(e.clientX, e.clientY)
+      if (cell) onCellAction?.(cell.x, cell.y)
+    },
+    [canDragPaint, cellAt, isPainting, onCellAction, onPointerMove],
   )
 
   return (
@@ -180,7 +214,7 @@ export function PatternCanvasGrid({
           width={gridW}
           height={gridH}
           className="touch-none cursor-crosshair"
-          onPointerMove={onPointerMove}
+          onPointerMove={studioTool ? onPointerMovePaint : onPointerMove}
           onPointerLeave={() => onHover(null)}
           onPointerDown={onPointerDown}
         />

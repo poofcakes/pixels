@@ -21,12 +21,14 @@ type BeadInventoryPickerProps = {
   paletteId: BeadPaletteId
   enabled: Set<string>
   onEnabledChange: (enabled: Set<string>) => void
+  title?: string
 }
 
 export function BeadInventoryPicker({
   paletteId,
   enabled,
   onEnabledChange,
+  title,
 }: BeadInventoryPickerProps) {
   const t = useTranslations('pattern')
   const tMardSeries = useTranslations('colors.series')
@@ -51,14 +53,29 @@ export function BeadInventoryPicker({
   }, [sortedColors, query])
 
   const groupedBySeries = useMemo(() => {
-    if (!isMard || query.trim()) return null
-    return MARD_STOCK_SERIES.map((series) => ({
-      ...series,
-      colors: series.codes
-        .map((code) => palette.colors.find((c) => c.code === code))
-        .filter((c): c is (typeof palette.colors)[number] => Boolean(c)),
-    })).filter((s) => s.colors.length > 0)
-  }, [isMard, query, palette.colors])
+    if (query.trim()) return null
+    if (isMard) {
+      return MARD_STOCK_SERIES.map((series) => ({
+        ...series,
+        colors: series.codes
+          .map((code) => palette.colors.find((c) => c.code === code))
+          .filter((c): c is (typeof palette.colors)[number] => Boolean(c)),
+      })).filter((s) => s.colors.length > 0)
+    }
+
+    const groups = new Map<string, typeof sortedColors>()
+    for (const color of sortedColors) {
+      const id = /^([A-Z]+)/i.exec(color.code)?.[1]?.toUpperCase() ?? '#'
+      const list = groups.get(id) ?? []
+      groups.set(id, [...list, color])
+    }
+
+    return [...groups.entries()].map(([id, colors]) => ({
+      id,
+      codes: colors.map((c) => c.code),
+      colors,
+    }))
+  }, [isMard, query, palette.colors, sortedColors])
 
   function toggle(code: string) {
     const next = new Set(enabled)
@@ -121,7 +138,7 @@ export function BeadInventoryPicker({
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center justify-between rounded-md border border-black/15 bg-white px-3 py-2 text-left text-sm hover:bg-black/[0.02]"
       >
-        <span className="font-medium">{t('stockTitle')}</span>
+        <span className="font-medium">{title ?? t('stockTitle')}</span>
         <span className="font-mono text-xs text-[var(--muted)]">
           {summary.allEnabled
             ? t('stockAll', { total })
@@ -152,11 +169,15 @@ export function BeadInventoryPicker({
             </button>
           </div>
 
-          {isMard && (
+          {groupedBySeries && (
             <div className="flex flex-col gap-2">
-              <p className="text-xs font-medium">{t('stockMardSeriesTitle')}</p>
+              <p className="text-xs font-medium">
+                {isMard
+                  ? t('stockMardSeriesTitle')
+                  : t('stockSeriesTitle', { palette: palette.label })}
+              </p>
               <div className="flex flex-wrap gap-1.5">
-                {MARD_STOCK_SERIES.map((series) => {
+                {groupedBySeries.map((series) => {
                   const state = seriesEnabledState(series.codes, enabled)
                   const onCount = series.codes.filter((c) => enabled.has(c)).length
                   return (

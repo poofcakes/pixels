@@ -1,7 +1,12 @@
 import { getBeadColor } from '@/lib/beadPalettes'
 import { deltaE76, hexToRgb, rgbToLab } from '@/lib/beadColorMatch'
+import type { CellEditMap } from '@/lib/patternProjects'
 
 import type { BeadPattern, PatternCell } from '@/lib/beadPattern'
+
+export function cellKey(x: number, y: number): string {
+  return `${x},${y}`
+}
 
 export function getPatternBeadColor(
   paletteId: BeadPattern['paletteId'],
@@ -183,4 +188,44 @@ export function replaceColorOverrides(
 
 export function hasPatternEdits(overrides: Record<string, string>): boolean {
   return Object.keys(overrides).length > 0
+}
+
+export function hasCellEdits(cellEdits: CellEditMap): boolean {
+  return Object.keys(cellEdits).length > 0
+}
+
+/** Apply global colour overrides, then per-cell paint/erase edits. */
+export function applyAllPatternEdits(
+  base: BeadPattern,
+  overrides: Record<string, string>,
+  cellEdits: CellEditMap,
+): BeadPattern {
+  let pattern = applyPatternEdits(base, overrides)
+  if (!hasCellEdits(cellEdits)) return pattern
+
+  const cells = pattern.cells.map((cell) => {
+    const key = cellKey(cell.x, cell.y)
+    if (!(key in cellEdits)) return cell
+    const edit = cellEdits[key]
+    if (edit === null) {
+      return { ...cell, sourceRgb: null, bead: null }
+    }
+    const bead = getBeadColor(pattern.paletteId, edit)
+    return bead ? { ...cell, sourceRgb: null, bead } : cell
+  })
+
+  return {
+    ...pattern,
+    cells,
+    ...recomputePatternStats(cells),
+  }
+}
+
+export type EditSnapshot = {
+  colorOverrides: Record<string, string>
+  cellEdits: CellEditMap
+}
+
+export function hasAnyEdits(snapshot: EditSnapshot): boolean {
+  return hasPatternEdits(snapshot.colorOverrides) || hasCellEdits(snapshot.cellEdits)
 }

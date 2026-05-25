@@ -1,5 +1,7 @@
 import { MARD_COLORS } from '@/lib/mardColors'
 
+import { ARTKAL_C_COLORS, ARTKAL_C_COLOR_COUNT } from './artkalCColors'
+import { ARTKAL_M_COLORS, ARTKAL_M_COLOR_COUNT } from './artkalMColors'
 import { ARTKAL_COLORS, ARTKAL_COLOR_COUNT } from './artkalColors'
 import { HAMA_COLORS, HAMA_COLOR_COUNT } from './hamaColors'
 import { NABBI_COLORS, NABBI_COLOR_COUNT } from './nabbiColors'
@@ -14,7 +16,7 @@ const mardPaletteColors: readonly BeadColor[] = MARD_COLORS.map((c) => ({
   hex: c.hex,
 }))
 
-export const BEAD_PALETTES: readonly BeadPalette[] = [
+const SINGLE_BRAND_PALETTES: readonly BeadPalette[] = [
   {
     id: 'mard',
     label: 'MARD',
@@ -40,6 +42,20 @@ export const BEAD_PALETTES: readonly BeadPalette[] = [
     colors: ARTKAL_COLORS,
   },
   {
+    id: 'artkalC',
+    label: 'Artkal-C Mini',
+    sourceUrl:
+      'https://cdn.shopify.com/s/files/1/1323/8195/files/C_MINI_Beads_RGB_Color_Chart_2024.pdf?v=1744700289',
+    colors: ARTKAL_C_COLORS,
+  },
+  {
+    id: 'artkalM',
+    label: 'Artkal-M Mini',
+    sourceUrl:
+      'https://cdn.shopify.com/s/files/1/1323/8195/files/M_MINI_Beads_RGB_Color_Chart_2025.pdf?v=1760661747',
+    colors: ARTKAL_M_COLORS,
+  },
+  {
     id: 'nabbi',
     label: 'Nabbi',
     sourceUrl: 'https://www.pixel-beads.com/nabbi-bead-color-chart',
@@ -50,6 +66,25 @@ export const BEAD_PALETTES: readonly BeadPalette[] = [
     label: 'IKEA Pyssla',
     sourceUrl: 'https://www.pixel-beads.com/ikea-pyssla-bead-color-chart',
     colors: PYSSLA_COLORS,
+  },
+] as const
+
+const mixedPaletteColors: readonly BeadColor[] = SINGLE_BRAND_PALETTES.flatMap((palette) =>
+  palette.colors.map((color) => ({
+    ...color,
+    code: `${palette.label} ${color.code}`,
+    brandId: palette.id,
+    brandLabel: palette.label,
+  })),
+)
+
+export const BEAD_PALETTES: readonly BeadPalette[] = [
+  ...SINGLE_BRAND_PALETTES,
+  {
+    id: 'mixed',
+    label: 'Mixed brands',
+    sourceUrl: '',
+    colors: mixedPaletteColors,
   },
 ] as const
 
@@ -86,9 +121,15 @@ export function getPaletteColorCount(id: BeadPaletteId): number {
       return HAMA_COLOR_COUNT
     case 'artkal':
       return ARTKAL_COLOR_COUNT
+    case 'artkalC':
+      return ARTKAL_C_COLOR_COUNT
+    case 'artkalM':
+      return ARTKAL_M_COLOR_COUNT
     case 'nabbi':
       return NABBI_COLOR_COUNT
     case 'pyssla':
       return PYSSLA_COLOR_COUNT
+    case 'mixed':
+      return mixedPaletteColors.length
   }
 }

@@ -13,7 +13,7 @@ Push to `main` and Actions builds + deploys automatically. No need to commit
 2. Custom domain: **pixels.poofcakes.com** (set in Pages settings; `public/CNAME`
    is copied into each build)
 
-Workflow: `.github/workflows/pages.yml` — checks out this repo, runs
+Workflow: `.github/workflows/pages.yml` checks out this repo, runs
 `npm run pages`, deploys the `docs/` artifact.
 
 ## Local development

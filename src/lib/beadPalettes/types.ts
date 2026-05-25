@@ -3,6 +3,8 @@ export type BeadColor = {
   code: string
   hex: string
   name?: string
+  brandId?: BeadPaletteId
+  brandLabel?: string
 }
 
 export type BeadPaletteId =
@@ -12,6 +14,9 @@ export type BeadPaletteId =
   | 'pyssla'
   | 'nabbi'
   | 'artkal'
+  | 'artkalC'
+  | 'artkalM'
+  | 'mixed'
 
 export type BeadPalette = {
   id: BeadPaletteId

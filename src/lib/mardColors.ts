@@ -5,7 +5,7 @@
  * 291 colors organized by series prefix (A, B, C, ...).
  *
  * Hex values represent the closest digital approximation of the physical bead
- * colour and are intended for swatch displays and pattern previews — final
+ * colour and are intended for swatch displays and pattern previews. Final
  * colour matching for production should always reference physical samples.
  */
 

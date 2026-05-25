@@ -5,11 +5,9 @@ import { useTranslations } from 'next-intl'
 import { useState } from 'react'
 
 import type { BeadPattern } from '@/lib/beadPattern'
-import { getBeadPalette } from '@/lib/beadPalettes'
 import {
   hasPatternEdits,
   mergeSimilarColorOverrides,
-  replaceColorOverrides,
 } from '@/lib/patternEdits'
 type PatternEditPanelProps = {
   basePattern: BeadPattern
@@ -18,8 +16,6 @@ type PatternEditPanelProps = {
   onUndo: () => void
   onReset: () => void
   canUndo: boolean
-  selectedCode: string | null
-  onSelectCode: (code: string | null) => void
 }
 
 export function PatternEditPanel({
@@ -29,30 +25,17 @@ export function PatternEditPanel({
   onUndo,
   onReset,
   canUndo,
-  selectedCode,
-  onSelectCode,
 }: PatternEditPanelProps) {
   const t = useTranslations('pattern')
   const [mergeThreshold, setMergeThreshold] = useState(10)
-  const [replaceTarget, setReplaceTarget] = useState('')
 
   const edited = hasPatternEdits(colorOverrides)
-  const paletteColors = getBeadPalette(basePattern.paletteId).colors
-
-  function handleReplace() {
-    if (!selectedCode || !replaceTarget) return
-    onPushOverrides(
-      replaceColorOverrides(basePattern, colorOverrides, selectedCode, replaceTarget),
-    )
-    setReplaceTarget('')
-    onSelectCode(null)
-  }
 
   return (
-    <div className="flex flex-col gap-4 border-t border-black/10 pt-4">
+    <div className="flex flex-col gap-3 rounded-xl border border-black/10 bg-white/60 p-3">
       <div>
-        <h3 className="font-medium">{t('editTitle')}</h3>
-        <p className="mt-1 text-xs text-[var(--muted)]">{t('editHint')}</p>
+        <h3 className="font-medium">{t('mergeSimilar')}</h3>
+        <p className="mt-1 text-xs text-[var(--muted)]">{t('mergeSimilarHint')}</p>
       </div>
 
       <label className="flex flex-col gap-1.5">
@@ -79,46 +62,7 @@ export function PatternEditPanel({
         >
           {t('mergeSimilar')}
         </button>
-        <span className="text-xs text-[var(--muted)]">{t('mergeSimilarHint')}</span>
       </label>
-
-      {selectedCode && (
-        <div className="flex flex-col gap-2 rounded-lg border border-[var(--accent)]/30 bg-[var(--accent)]/5 p-3">
-          <p className="text-sm">
-            {t('replaceSelected')}{' '}
-            <span className="font-mono font-semibold">{selectedCode}</span>
-          </p>
-          <div className="flex gap-2">
-            <select
-              value={replaceTarget}
-              onChange={(e) => setReplaceTarget(e.target.value)}
-              className="min-w-0 flex-1 rounded-md border border-black/15 bg-white px-2 py-1.5 font-mono text-xs"
-            >
-              <option value="">{t('pickReplacement')}</option>
-              {paletteColors.map((c) => (
-                <option key={c.code} value={c.code}>
-                  {c.code} · {c.hex}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              disabled={!replaceTarget}
-              onClick={handleReplace}
-              className="shrink-0 rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm text-white disabled:opacity-50"
-            >
-              {t('replaceApply')}
-            </button>
-          </div>
-          <button
-            type="button"
-            onClick={() => onSelectCode(null)}
-            className="text-xs text-[var(--muted)] hover:underline"
-          >
-            {t('replaceCancel')}
-          </button>
-        </div>
-      )}
 
       {(edited || canUndo) && (
         <div className="flex flex-wrap gap-3">

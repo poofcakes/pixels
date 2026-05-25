@@ -1,4 +1,9 @@
-import type { BeadColor, BeadPaletteId } from '@/lib/beadPalettes'
+import {
+  BEAD_PALETTES,
+  getBeadColor,
+  type BeadColor,
+  type BeadPaletteId,
+} from '@/lib/beadPalettes'
 import {
   createBeadMatcher,
   deltaE76,
@@ -7,6 +12,12 @@ import {
   type BeadMatchMethod,
 } from '@/lib/beadColorMatch'
 import { isLightHex } from '@/lib/mardColors'
+import {
+  rulerBandSize,
+  rulerFontSize,
+  rulerLabelStep,
+  shouldShowRulerLabel,
+} from '@/lib/patternRuler'
 import {
   capBeadGridDimensions,
   MATCH_YIELD_ROW_INTERVAL,
@@ -31,6 +42,10 @@ export type PatternGridDisplay = {
   useMardColors: boolean
   /** Text drawn inside each bead cell. */
   label: 'none' | 'code' | 'hex'
+  /** Optional pegboard size used to draw board boundaries. */
+  boardSize?: number | null
+  /** When true, 5-bead guide lines are drawn above the design. */
+  showGridGuidesOnTop?: boolean
 }
 
 export type BeadPattern = {
@@ -46,6 +61,12 @@ export type BeadPattern = {
   sourceHeight: number
   /** File pixels merged into each bead (1 = one file pixel per bead). */
   pixelBlockSize: number
+  /** Auto-detected bead-grid size before manual width resampling or board padding. */
+  naturalWidth?: number
+  naturalHeight?: number
+  /** Filled design footprint before pegboard padding. */
+  designWidth?: number
+  designHeight?: number
   paletteId: BeadPaletteId
   /** Present when the file or grid was downscaled for performance. */
   importMeta?: BeadPatternImportMeta
@@ -56,6 +77,61 @@ export type BeadPatternImportMeta = {
   fileHeight: number
   analysisWidth: number
   analysisHeight: number
+}
+
+export type PegboardAnchor = 'center' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+
+function pegboardOffset(
+  available: number,
+  axis: 'x' | 'y',
+  anchor: PegboardAnchor,
+): number {
+  if (anchor === 'center') return Math.floor(available / 2)
+  if (axis === 'x' && anchor.endsWith('right')) return available
+  if (axis === 'y' && anchor.startsWith('bottom')) return available
+  return 0
+}
+
+export function fitPatternToPegboards(
+  pattern: BeadPattern,
+  boardSize: number,
+  anchor: PegboardAnchor = 'center',
+): BeadPattern {
+  const size = Math.max(1, Math.floor(boardSize))
+  const width = Math.ceil(pattern.width / size) * size
+  const height = Math.ceil(pattern.height / size) * size
+
+  if (width === pattern.width && height === pattern.height) {
+    return {
+      ...pattern,
+      designWidth: pattern.designWidth ?? pattern.width,
+      designHeight: pattern.designHeight ?? pattern.height,
+    }
+  }
+
+  const offsetX = pegboardOffset(width - pattern.width, 'x', anchor)
+  const offsetY = pegboardOffset(height - pattern.height, 'y', anchor)
+  const cells: PatternCell[] = Array.from({ length: width * height }, (_, i) => ({
+    x: i % width,
+    y: Math.floor(i / width),
+    sourceRgb: null,
+    bead: null,
+  }))
+
+  for (const cell of pattern.cells) {
+    const x = cell.x + offsetX
+    const y = cell.y + offsetY
+    cells[y * width + x] = { ...cell, x, y }
+  }
+
+  return {
+    ...pattern,
+    width,
+    height,
+    cells,
+    designWidth: pattern.designWidth ?? pattern.width,
+    designHeight: pattern.designHeight ?? pattern.height,
+  }
 }
 
 export type PatternFromImageOptions = {
@@ -70,16 +146,126 @@ export type PatternFromImageOptions = {
    * `auto` picks the largest N where the image looks like uniform N×N upscaled blocks.
    */
   pixelBlockSize: number | 'auto'
+  /**
+   * Resample trimmed image to this many bead columns (height from aspect ratio).
+   * Overrides block-size downsampling when set.
+   */
+  targetCanvasWidth?: number | null
+  /** Cap unique bead colours after matching; remaps rare colours to nearest kept. */
+  paletteLimit?: number | null
+  /** Use dominant-colour sampling when resampling to target grid. */
+  dominantSampling?: boolean
   /** Algorithm for mapping source RGB to the nearest palette swatch. */
   matchMethod: BeadMatchMethod
-  /** sRGB background to treat as empty (default near-black). */
+  /** Optional sRGB background hint to treat as empty when connected to an image edge. */
   backgroundRgb?: [number, number, number]
-  /** Max ΔE76 from background colour to skip a pixel. */
+  /** RGB distance tolerance for edge-connected background cleanup. */
   backgroundTolerance?: number
   alphaThreshold?: number
 }
 
-const DEFAULT_BG: [number, number, number] = [0, 0, 0]
+function cloneImageData(data: ImageData): ImageData {
+  return new ImageData(new Uint8ClampedArray(data.data), data.width, data.height)
+}
+
+function rgbDistanceSq(
+  a: readonly [number, number, number],
+  b: readonly [number, number, number],
+): number {
+  const dr = a[0] - b[0]
+  const dg = a[1] - b[1]
+  const db = a[2] - b[2]
+  return dr * dr + dg * dg + db * db
+}
+
+function collectLikelyEdgeBackgrounds(
+  data: ImageData,
+  alphaThreshold: number,
+  explicitBg?: [number, number, number],
+): [number, number, number][] {
+  if (explicitBg) return [explicitBg]
+
+  const buckets = new Map<string, { rgb: [number, number, number]; count: number }>()
+  const add = (x: number, y: number) => {
+    const i = (y * data.width + x) * 4
+    if (data.data[i + 3] < alphaThreshold) return
+    const rgb: [number, number, number] = [data.data[i], data.data[i + 1], data.data[i + 2]]
+    const key = rgb.map((v) => Math.round(v / 16) * 16).join(',')
+    const bucket = buckets.get(key)
+    if (bucket) bucket.count++
+    else buckets.set(key, { rgb, count: 1 })
+  }
+
+  for (let x = 0; x < data.width; x++) {
+    add(x, 0)
+    add(x, data.height - 1)
+  }
+  for (let y = 1; y < data.height - 1; y++) {
+    add(0, y)
+    add(data.width - 1, y)
+  }
+
+  return [...buckets.values()]
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 4)
+    .map((bucket) => bucket.rgb)
+}
+
+function isNearAnyBackground(
+  rgb: [number, number, number],
+  backgrounds: readonly [number, number, number][],
+  tolerance: number,
+): boolean {
+  const threshold = tolerance * tolerance
+  return backgrounds.some((bg) => rgbDistanceSq(rgb, bg) <= threshold)
+}
+
+function removeConnectedEdgeBackground(
+  data: ImageData,
+  alphaThreshold: number,
+  tolerance = 36,
+  explicitBg?: [number, number, number],
+): ImageData {
+  const backgrounds = collectLikelyEdgeBackgrounds(data, alphaThreshold, explicitBg)
+  if (backgrounds.length === 0) return data
+
+  const out = cloneImageData(data)
+  const visited = new Uint8Array(data.width * data.height)
+  const queue: number[] = []
+
+  const maybeEnqueue = (x: number, y: number) => {
+    const idx = y * data.width + x
+    if (visited[idx]) return
+    const i = idx * 4
+    if (out.data[i + 3] < alphaThreshold) return
+    const rgb: [number, number, number] = [out.data[i], out.data[i + 1], out.data[i + 2]]
+    if (!isNearAnyBackground(rgb, backgrounds, tolerance)) return
+    visited[idx] = 1
+    queue.push(idx)
+  }
+
+  for (let x = 0; x < data.width; x++) {
+    maybeEnqueue(x, 0)
+    maybeEnqueue(x, data.height - 1)
+  }
+  for (let y = 1; y < data.height - 1; y++) {
+    maybeEnqueue(0, y)
+    maybeEnqueue(data.width - 1, y)
+  }
+
+  for (let head = 0; head < queue.length; head++) {
+    const idx = queue[head]
+    const x = idx % data.width
+    const y = Math.floor(idx / data.width)
+    out.data[idx * 4 + 3] = 0
+    if (x > 0) maybeEnqueue(x - 1, y)
+    if (x < data.width - 1) maybeEnqueue(x + 1, y)
+    if (y > 0) maybeEnqueue(x, y - 1)
+    if (y < data.height - 1) maybeEnqueue(x, y + 1)
+  }
+
+  return out
+}
 
 /** Crops to the tight bounding box of pixels at or above `alphaThreshold`. */
 export function trimTransparentPixels(
@@ -335,14 +521,148 @@ export function downsampleUniformBlocks(
   return out
 }
 
+/** Resample source image to a fixed bead grid width; height from aspect ratio. */
+export function downsampleToTargetWidth(
+  data: ImageData,
+  targetWidth: number,
+  alphaThreshold = 128,
+  dominant = true,
+): ImageData {
+  const tw = Math.max(1, Math.min(data.width, Math.floor(targetWidth)))
+  const th = Math.max(1, Math.round((data.height / data.width) * tw))
+  const out = new ImageData(tw, th)
+
+  for (let y = 0; y < th; y++) {
+    for (let x = 0; x < tw; x++) {
+      const x0 = Math.floor((x / tw) * data.width)
+      const x1 = Math.floor(((x + 1) / tw) * data.width)
+      const y0 = Math.floor((y / th) * data.height)
+      const y1 = Math.floor(((y + 1) / th) * data.height)
+
+      const tallies = new Map<string, { r: number; g: number; b: number; a: number; n: number }>()
+      for (let sy = y0; sy < y1; sy++) {
+        for (let sx = x0; sx < x1; sx++) {
+          const p = readPixel(data, sx, sy)
+          if (p.a < alphaThreshold) continue
+          const key = `${p.r},${p.g},${p.b},${p.a}`
+          const prev = tallies.get(key)
+          if (prev) prev.n++
+          else tallies.set(key, { ...p, n: 1 })
+        }
+      }
+
+      const dst = (y * tw + x) * 4
+      if (tallies.size === 0) {
+        out.data[dst + 3] = 0
+        continue
+      }
+
+      let best = { r: 0, g: 0, b: 0, a: 0, n: 0 }
+      if (dominant) {
+        for (const entry of tallies.values()) {
+          if (entry.n > best.n) best = entry
+        }
+      } else {
+        let r = 0
+        let g = 0
+        let b = 0
+        let a = 0
+        let n = 0
+        for (const entry of tallies.values()) {
+          r += entry.r * entry.n
+          g += entry.g * entry.n
+          b += entry.b * entry.n
+          a += entry.a * entry.n
+          n += entry.n
+        }
+        best = {
+          r: Math.round(r / n),
+          g: Math.round(g / n),
+          b: Math.round(b / n),
+          a: Math.round(a / n),
+          n,
+        }
+      }
+
+      out.data[dst] = best.r
+      out.data[dst + 1] = best.g
+      out.data[dst + 2] = best.b
+      out.data[dst + 3] = best.a
+    }
+  }
+
+  return out
+}
+
+/** Keep top N colours by bead count; remap others to nearest kept code. */
+export function applyPaletteLimit(
+  pattern: BeadPattern,
+  limit: number,
+  paletteId: BeadPaletteId,
+): BeadPattern {
+  const cap = Math.max(1, Math.floor(limit))
+  const used = Object.entries(pattern.counts).sort((a, b) => b[1] - a[1])
+  if (used.length <= cap) return pattern
+
+  const kept = new Set(used.slice(0, cap).map(([code]) => code))
+  const keptList = [...kept]
+  const keptLabs = keptList.map((code) => {
+    const bead = getBeadColor(paletteId, code)
+    return bead ? rgbToLab(...hexToRgb(bead.hex)) : ([0, 0, 0] as const)
+  })
+
+  function nearestKept(code: string): string {
+    if (kept.has(code)) return code
+    const bead = getBeadColor(paletteId, code)
+    if (!bead) return keptList[0]
+    const lab = rgbToLab(...hexToRgb(bead.hex))
+    let bestCode = keptList[0]
+    let bestDist = Infinity
+    keptList.forEach((k, i) => {
+      const dist = deltaE76(lab, keptLabs[i])
+      if (dist < bestDist) {
+        bestDist = dist
+        bestCode = k
+      }
+    })
+    return bestCode
+  }
+
+  const remap = new Map<string, string>()
+  for (const [code] of used) {
+    if (!kept.has(code)) remap.set(code, nearestKept(code))
+  }
+
+  const cells = pattern.cells.map((cell) => {
+    if (!cell.bead) return cell
+    const nextCode = remap.get(cell.bead.code)
+    if (!nextCode) return cell
+    const bead = getBeadColor(paletteId, nextCode)
+    return bead ? { ...cell, bead } : cell
+  })
+
+  const counts: Record<string, number> = {}
+  let totalBeads = 0
+  for (const cell of cells) {
+    if (!cell.bead) continue
+    counts[cell.bead.code] = (counts[cell.bead.code] ?? 0) + 1
+    totalBeads++
+  }
+
+  return {
+    ...pattern,
+    cells,
+    counts,
+    uniqueColors: Object.keys(counts).length,
+    totalBeads,
+  }
+}
+
 export async function patternFromImageData(
   data: ImageData,
   options: PatternFromImageOptions,
 ): Promise<BeadPattern> {
   const {
-    removeBackground,
-    backgroundRgb = DEFAULT_BG,
-    backgroundTolerance = 12,
     alphaThreshold = 128,
   } = options
 
@@ -351,7 +671,6 @@ export async function patternFromImageData(
     options.matchMethod,
     options.allowedCodes,
   )
-  const bgLab = rgbToLab(...backgroundRgb)
   const { width, height } = data
   const cellCount = width * height
   const cells: PatternCell[] = new Array(cellCount)
@@ -374,16 +693,10 @@ export async function patternFromImageData(
       let sourceRgb: [number, number, number] | null = null
 
       if (a >= alphaThreshold) {
-        const isBg =
-          removeBackground &&
-          deltaE76(rgbToLab(r, g, b), bgLab) <= backgroundTolerance
-
-        if (!isBg) {
-          sourceRgb = [r, g, b]
-          bead = matcher.match(r, g, b)
-          counts[bead.code] = (counts[bead.code] ?? 0) + 1
-          totalBeads++
-        }
+        sourceRgb = [r, g, b]
+        bead = matcher.match(r, g, b)
+        counts[bead.code] = (counts[bead.code] ?? 0) + 1
+        totalBeads++
       }
 
       cells[y * width + x] = { x, y, sourceRgb, bead }
@@ -400,6 +713,10 @@ export async function patternFromImageData(
     sourceWidth: width,
     sourceHeight: height,
     pixelBlockSize: 1,
+    naturalWidth: width,
+    naturalHeight: height,
+    designWidth: width,
+    designHeight: height,
     paletteId: options.paletteId,
   }
 }
@@ -438,20 +755,48 @@ export async function patternFromImageFile(
   const sourceWidth = canvas.width
   const sourceHeight = canvas.height
   const fullImageData = ctx.getImageData(0, 0, sourceWidth, sourceHeight)
-  const trimmedImageData = options.trimTransparent
-    ? trimTransparentPixels(fullImageData, alphaThreshold)
+  const backgroundCleanedImageData = options.removeBackground
+    ? removeConnectedEdgeBackground(
+        fullImageData,
+        alphaThreshold,
+        options.backgroundTolerance ?? 36,
+        options.backgroundRgb,
+      )
     : fullImageData
+  const trimmedImageData = options.trimTransparent
+    ? trimTransparentPixels(backgroundCleanedImageData, alphaThreshold)
+    : backgroundCleanedImageData
 
-  const pixelBlockSize = resolvePixelBlockSize(
+  const naturalPixelBlockSize = resolvePixelBlockSize(
     fullImageData,
     trimmedImageData,
     options.pixelBlockSize,
     alphaThreshold,
   )
+  let naturalImageData = trimmedImageData
+  if (naturalPixelBlockSize > 1) {
+    naturalImageData = downsampleUniformBlocks(
+      naturalImageData,
+      naturalPixelBlockSize,
+      alphaThreshold,
+    )
+  }
 
-  let imageData = trimmedImageData
-  if (pixelBlockSize > 1) {
-    imageData = downsampleUniformBlocks(imageData, pixelBlockSize, alphaThreshold)
+  let pixelBlockSize = naturalPixelBlockSize
+  let imageData = naturalImageData
+
+  if (options.targetCanvasWidth && options.targetCanvasWidth > 0) {
+    const targetWidth = Math.min(options.targetCanvasWidth, naturalImageData.width)
+    imageData = downsampleToTargetWidth(
+      trimmedImageData,
+      targetWidth,
+      alphaThreshold,
+      options.dominantSampling !== false,
+    )
+    pixelBlockSize = Math.max(
+      1,
+      Math.round(trimmedImageData.width / imageData.width),
+    )
   }
 
   const gridCap = capBeadGridDimensions(imageData.width, imageData.height, MAX_BEAD_GRID_EDGE)
@@ -459,7 +804,10 @@ export async function patternFromImageFile(
     imageData = resizeImageDataNearest(imageData, gridCap.width, gridCap.height)
   }
 
-  const pattern = await patternFromImageData(imageData, options)
+  let pattern = await patternFromImageData(imageData, options)
+  if (options.paletteLimit && options.paletteLimit > 0) {
+    pattern = applyPaletteLimit(pattern, options.paletteLimit, options.paletteId)
+  }
   const importMeta: BeadPatternImportMeta = {
     fileWidth,
     fileHeight,
@@ -472,6 +820,10 @@ export async function patternFromImageFile(
     sourceWidth,
     sourceHeight,
     pixelBlockSize,
+    naturalWidth: naturalImageData.width,
+    naturalHeight: naturalImageData.height,
+    designWidth: pattern.designWidth ?? pattern.width,
+    designHeight: pattern.designHeight ?? pattern.height,
     importMeta: fileFit.scale !== 1 || gridCap.scale !== 1 ? importMeta : undefined,
   }
 }
@@ -481,14 +833,24 @@ export function cellFillColor(
   useMardColors: boolean,
 ): string | undefined {
   if (useMardColors) return cell.bead?.hex
-  if (!cell.sourceRgb) return undefined
-  const [r, g, b] = cell.sourceRgb
-  return `rgb(${r}, ${g}, ${b})`
+  if (cell.sourceRgb) {
+    const [r, g, b] = cell.sourceRgb
+    return `rgb(${r}, ${g}, ${b})`
+  }
+  return cell.bead?.hex
+}
+
+function displayBeadCode(code: string): string {
+  for (const palette of BEAD_PALETTES) {
+    const prefix = `${palette.label} `
+    if (code.startsWith(prefix)) return code.slice(prefix.length)
+  }
+  return code
 }
 
 export function cellLabel(cell: PatternCell, label: PatternGridDisplay['label']): string | null {
   if (!cell.bead || label === 'none') return null
-  if (label === 'code') return cell.bead.code
+  if (label === 'code') return displayBeadCode(cell.bead.code)
   return cell.bead.hex
 }
 
@@ -530,6 +892,86 @@ export type PatternGridDrawOptions = {
   selectedCode?: string | null
 }
 
+const GUIDE_GRID_STEP = 5
+
+function drawGuideGridLines(
+  ctx: CanvasRenderingContext2D,
+  pattern: BeadPattern,
+  cellPx: number,
+  onTop: boolean,
+): void {
+  if (!onTop) {
+    ctx.save()
+    ctx.strokeStyle = 'rgba(255,255,255,0.58)'
+    ctx.lineWidth = Math.max(1, Math.floor(cellPx * 0.05))
+
+    for (let x = GUIDE_GRID_STEP; x < pattern.width; x += GUIDE_GRID_STEP) {
+      for (let y = 0; y < pattern.height; y++) {
+        const left = pattern.cells[y * pattern.width + x - 1]?.bead
+        const right = pattern.cells[y * pattern.width + x]?.bead
+        if (left || right) continue
+        const px = x * cellPx
+        const py = y * cellPx
+        ctx.beginPath()
+        ctx.moveTo(px, py)
+        ctx.lineTo(px, py + cellPx)
+        ctx.stroke()
+      }
+    }
+
+    for (let y = GUIDE_GRID_STEP; y < pattern.height; y += GUIDE_GRID_STEP) {
+      for (let x = 0; x < pattern.width; x++) {
+        const above = pattern.cells[(y - 1) * pattern.width + x]?.bead
+        const below = pattern.cells[y * pattern.width + x]?.bead
+        if (above || below) continue
+        const px = x * cellPx
+        const py = y * cellPx
+        ctx.beginPath()
+        ctx.moveTo(px, py)
+        ctx.lineTo(px + cellPx, py)
+        ctx.stroke()
+      }
+    }
+
+    ctx.restore()
+    return
+  }
+
+  const lines: Array<{ strokeStyle: string; lineWidth: number }> = onTop
+    ? [
+        { strokeStyle: 'rgba(20,20,20,0.28)', lineWidth: Math.max(2, Math.floor(cellPx * 0.1)) },
+        { strokeStyle: 'rgba(255,255,255,0.82)', lineWidth: Math.max(1, Math.floor(cellPx * 0.06)) },
+      ]
+    : [
+        { strokeStyle: 'rgba(20,20,20,0.32)', lineWidth: Math.max(2, Math.floor(cellPx * 0.08)) },
+        { strokeStyle: 'rgba(255,255,255,0.58)', lineWidth: Math.max(1, Math.floor(cellPx * 0.05)) },
+      ]
+
+  ctx.save()
+  for (const line of lines) {
+    ctx.strokeStyle = line.strokeStyle
+    ctx.lineWidth = line.lineWidth
+
+    for (let x = GUIDE_GRID_STEP; x < pattern.width; x += GUIDE_GRID_STEP) {
+      const px = x * cellPx
+      ctx.beginPath()
+      ctx.moveTo(px, 0)
+      ctx.lineTo(px, pattern.height * cellPx)
+      ctx.stroke()
+    }
+
+    for (let y = GUIDE_GRID_STEP; y < pattern.height; y += GUIDE_GRID_STEP) {
+      const py = y * cellPx
+      ctx.beginPath()
+      ctx.moveTo(0, py)
+      ctx.lineTo(pattern.width * cellPx, py)
+      ctx.stroke()
+    }
+  }
+
+  ctx.restore()
+}
+
 export function drawPatternGrid(
   ctx: CanvasRenderingContext2D,
   pattern: BeadPattern,
@@ -537,11 +979,16 @@ export function drawPatternGrid(
   options: PatternGridDrawOptions,
 ): void {
   const { display, usePaletteColors, completedCodes, hovered, selectedCode } = options
+  const boardSize = display.boardSize && display.boardSize > 0 ? display.boardSize : null
+  const showGridGuidesOnTop = Boolean(display.showGridGuidesOnTop)
 
   for (const cell of pattern.cells) {
     const px = cell.x * cellPx
     const py = cell.y * cellPx
     const isComplete = Boolean(cell.bead && completedCodes?.has(cell.bead.code))
+    const isDimmedBySelection = Boolean(
+      selectedCode && cell.bead && cell.bead.code !== selectedCode,
+    )
     const fill = cellFillColor(cell, display.useMardColors)
 
     if (!fill) {
@@ -553,8 +1000,8 @@ export function drawPatternGrid(
     ctx.fillStyle = fill
     ctx.fillRect(px, py, cellPx, cellPx)
 
-    if (isComplete) {
-      ctx.fillStyle = 'rgba(0,0,0,0.35)'
+    if (isDimmedBySelection) {
+      ctx.fillStyle = 'rgba(18,18,18,0.1)'
       ctx.fillRect(px, py, cellPx, cellPx)
     }
 
@@ -589,11 +1036,34 @@ export function drawPatternGrid(
     }
   }
 
+  drawGuideGridLines(ctx, pattern, cellPx, showGridGuidesOnTop)
+
+  if (boardSize) {
+    ctx.save()
+    ctx.strokeStyle = 'rgba(255,255,255,0.72)'
+    ctx.lineWidth = Math.max(2, Math.floor(cellPx * 0.12))
+    for (let x = boardSize; x < pattern.width; x += boardSize) {
+      const px = x * cellPx
+      ctx.beginPath()
+      ctx.moveTo(px, 0)
+      ctx.lineTo(px, pattern.height * cellPx)
+      ctx.stroke()
+    }
+    for (let y = boardSize; y < pattern.height; y += boardSize) {
+      const py = y * cellPx
+      ctx.beginPath()
+      ctx.moveTo(0, py)
+      ctx.lineTo(pattern.width * cellPx, py)
+      ctx.stroke()
+    }
+    ctx.restore()
+  }
+
   if (hovered) {
     const hx = hovered.x * cellPx
     const hy = hovered.y * cellPx
     ctx.strokeStyle = '#ffffff'
-    ctx.lineWidth = 2
+    ctx.lineWidth = 1
     ctx.strokeRect(hx + 1, hy + 1, cellPx - 2, cellPx - 2)
   }
 
@@ -602,8 +1072,11 @@ export function drawPatternGrid(
       if (cell.bead?.code !== selectedCode) continue
       const px = cell.x * cellPx
       const py = cell.y * cellPx
-      ctx.strokeStyle = '#e85d04'
-      ctx.lineWidth = 2
+      ctx.strokeStyle = '#ffffff'
+      ctx.lineWidth = Math.max(1, Math.floor(cellPx * 0.04))
+      ctx.strokeRect(px + 1, py + 1, cellPx - 2, cellPx - 2)
+      ctx.strokeStyle = 'rgba(20,20,20,0.72)'
+      ctx.lineWidth = 1
       ctx.strokeRect(px + 1, py + 1, cellPx - 2, cellPx - 2)
     }
   }
@@ -624,6 +1097,257 @@ export function renderPatternToCanvas(
     display,
     usePaletteColors: display.useMardColors,
   })
+
+  return canvas
+}
+
+function clippedCanvasText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+): string {
+  if (ctx.measureText(text).width <= maxWidth) return text
+
+  let clipped = text
+  while (clipped.length > 1 && ctx.measureText(`${clipped}...`).width > maxWidth) {
+    clipped = clipped.slice(0, -1)
+  }
+
+  return `${clipped}...`
+}
+
+type ExportColorStat = {
+  code: string
+  count: number
+  hex: string
+}
+
+const EXPORT_LOGO_SRC = '/poofpixels-logo.webp'
+const EXPORT_THEME = {
+  background: '#FCF7FB',
+  purple: '#4F3A8A',
+  deepPurple: '#34205F',
+  pink: '#EA7AB8',
+  muted: '#6C6178',
+} as const
+let exportLogoPromise: Promise<HTMLImageElement | null> | null = null
+
+function loadExportLogo(): Promise<HTMLImageElement | null> {
+  if (typeof window === 'undefined') return Promise.resolve(null)
+  if (exportLogoPromise) return exportLogoPromise
+
+  exportLogoPromise = new Promise((resolve) => {
+    const img = new Image()
+    img.decoding = 'async'
+    img.onload = () => resolve(img)
+    img.onerror = () => resolve(null)
+    img.src = EXPORT_LOGO_SRC
+  })
+
+  return exportLogoPromise
+}
+
+function exportColorStats(pattern: BeadPattern): ExportColorStat[] {
+  const hexByCode = new Map<string, string>()
+  for (const cell of pattern.cells) {
+    if (cell.bead) hexByCode.set(cell.bead.code, cell.bead.hex)
+  }
+
+  return Object.entries(pattern.counts)
+    .map(([code, count]) => ({
+      code,
+      count,
+      hex: hexByCode.get(code) ?? '#888888',
+    }))
+    .sort((a, b) => b.count - a.count || a.code.localeCompare(b.code, undefined, { numeric: true }))
+}
+
+function drawExportColorBreakdown(
+  ctx: CanvasRenderingContext2D,
+  stats: ExportColorStat[],
+  x: number,
+  y: number,
+  width: number,
+): number {
+  const titleSize = 30
+  const cardW = 156
+  const cardH = 36
+  const gap = 10
+  const columns = Math.max(1, Math.floor((width + gap) / (cardW + gap)))
+
+  ctx.fillStyle = EXPORT_THEME.deepPurple
+  ctx.font = `800 ${titleSize}px ui-sans-serif, system-ui, sans-serif`
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'top'
+  ctx.fillText('Bead Count & Colours', x, y)
+
+  const cardsY = y + titleSize + 18
+  stats.forEach((stat, index) => {
+    const col = index % columns
+    const row = Math.floor(index / columns)
+    const cardX = x + col * (cardW + gap)
+    const cardY = cardsY + row * (cardH + gap)
+    const textColor = beadLabelTextColor(stat.hex)
+
+    ctx.fillStyle = stat.hex
+    ctx.beginPath()
+    ctx.roundRect(cardX, cardY, cardW, cardH, 7)
+    ctx.fill()
+
+    ctx.fillStyle = textColor
+    ctx.font = '800 17px ui-monospace, SFMono-Regular, Menlo, monospace'
+    ctx.textBaseline = 'middle'
+    ctx.textAlign = 'left'
+    ctx.fillText(clippedCanvasText(ctx, stat.code, cardW - 68), cardX + 10, cardY + cardH / 2)
+
+    ctx.textAlign = 'right'
+    ctx.font = '800 15px ui-monospace, SFMono-Regular, Menlo, monospace'
+    ctx.fillText(String(stat.count), cardX + cardW - 10, cardY + cardH / 2)
+  })
+
+  const rows = Math.ceil(stats.length / columns)
+  return titleSize + 18 + rows * cardH + Math.max(0, rows - 1) * gap
+}
+
+function drawExportRulers(
+  ctx: CanvasRenderingContext2D,
+  pattern: BeadPattern,
+  cellPx: number,
+  x: number,
+  y: number,
+  rulerSize: number,
+): void {
+  const gridW = pattern.width * cellPx
+  const gridH = pattern.height * cellPx
+  const colStep = rulerLabelStep(pattern.width)
+  const rowStep = rulerLabelStep(pattern.height)
+  const fontSize = rulerFontSize(cellPx)
+
+  ctx.save()
+  ctx.fillStyle = '#F4ECF4'
+  ctx.fillRect(x, y, rulerSize + gridW, rulerSize)
+  ctx.fillRect(x, y + rulerSize, rulerSize, gridH)
+
+  ctx.fillStyle = EXPORT_THEME.deepPurple
+  ctx.font = `800 ${fontSize}px ui-monospace, SFMono-Regular, Menlo, monospace`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+
+  for (let col = 0; col < pattern.width; col++) {
+    if (!shouldShowRulerLabel(col, pattern.width, colStep)) continue
+    ctx.fillText(String(col + 1), x + rulerSize + col * cellPx + cellPx / 2, y + rulerSize / 2)
+  }
+
+  ctx.textAlign = 'right'
+  for (let row = 0; row < pattern.height; row++) {
+    if (!shouldShowRulerLabel(row, pattern.height, rowStep)) continue
+    ctx.fillText(String(row + 1), x + rulerSize - 5, y + rulerSize + row * cellPx + cellPx / 2)
+  }
+
+  ctx.strokeStyle = 'rgba(52,32,95,0.2)'
+  ctx.lineWidth = 1
+  ctx.strokeRect(x + rulerSize, y + rulerSize, gridW, gridH)
+  ctx.restore()
+}
+
+export async function renderPatternExportToCanvas(
+  pattern: BeadPattern,
+  cellPx: number,
+  display: PatternGridDisplay,
+): Promise<HTMLCanvasElement> {
+  const logo = await loadExportLogo()
+  const stats = exportColorStats(pattern)
+  const padding = 48
+  const headerH = 156
+  const footerGap = 56
+  const gridW = pattern.width * cellPx
+  const gridH = pattern.height * cellPx
+  const rulerSize = rulerBandSize(cellPx)
+  const exportGridW = rulerSize + gridW
+  const exportGridH = rulerSize + gridH
+  const minSheetW = 1080
+  const sheetW = Math.max(minSheetW, exportGridW + padding * 2)
+  const contentW = sheetW - padding * 2
+  const colorRows = Math.ceil(stats.length / Math.max(1, Math.floor((contentW + 10) / (156 + 10))))
+  const computedBreakdownH = 30 + 18 + colorRows * 36 + Math.max(0, colorRows - 1) * 10
+  const footerH = footerGap + computedBreakdownH + 44
+
+  const canvas = document.createElement('canvas')
+  canvas.width = sheetW
+  canvas.height = headerH + exportGridH + footerH
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Canvas not supported')
+
+  ctx.fillStyle = EXPORT_THEME.background
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+  ctx.fillStyle = EXPORT_THEME.purple
+  ctx.fillRect(padding, 18, contentW * 0.64, 5)
+  ctx.fillStyle = EXPORT_THEME.pink
+  ctx.fillRect(padding + contentW * 0.64, 18, contentW * 0.36, 5)
+
+  const summaryX = logo ? padding + 180 : padding
+  if (logo) {
+    const logoW = 140
+    const logoH = Math.round((logo.height / logo.width) * logoW)
+    const y = 38
+    ctx.drawImage(logo, padding, y, logoW, logoH)
+  } else {
+    ctx.fillStyle = EXPORT_THEME.deepPurple
+    ctx.font = '800 42px ui-sans-serif, system-ui, sans-serif'
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'top'
+    ctx.fillText('Poof Pixels Pattern', padding, 42)
+  }
+
+  ctx.font = '700 22px ui-sans-serif, system-ui, sans-serif'
+  ctx.textAlign = 'right'
+  ctx.fillStyle = EXPORT_THEME.pink
+  ctx.fillText('@poofpixels', sheetW - padding, 46)
+  ctx.font = '600 18px ui-sans-serif, system-ui, sans-serif'
+  ctx.fillStyle = EXPORT_THEME.muted
+  ctx.fillText('pixels.poofcakes.com', sheetW - padding, 78)
+
+  ctx.fillStyle = EXPORT_THEME.deepPurple
+  ctx.textAlign = 'left'
+  ctx.font = '700 20px ui-sans-serif, system-ui, sans-serif'
+  ctx.fillText(
+    `${pattern.totalBeads.toLocaleString()} beads · ${pattern.uniqueColors} colours · ${pattern.width} x ${pattern.height} grid`,
+    summaryX,
+    106,
+  )
+
+  const gridX = Math.floor((sheetW - exportGridW) / 2)
+  const gridY = headerH
+  drawExportRulers(ctx, pattern, cellPx, gridX, gridY, rulerSize)
+  ctx.save()
+  ctx.translate(gridX + rulerSize, gridY + rulerSize)
+  drawPatternGrid(ctx, pattern, cellPx, {
+    display,
+    usePaletteColors: display.useMardColors,
+  })
+  ctx.restore()
+
+  const breakdownY = gridY + exportGridH + footerGap
+  drawExportColorBreakdown(ctx, stats, padding, breakdownY, contentW)
+
+  ctx.fillStyle = EXPORT_THEME.muted
+  ctx.font = '700 18px ui-sans-serif, system-ui, sans-serif'
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'bottom'
+  ctx.fillText(
+    `${pattern.totalBeads.toLocaleString()} total beads`,
+    padding,
+    canvas.height - 24,
+  )
+  ctx.fillStyle = EXPORT_THEME.deepPurple
+  ctx.textAlign = 'right'
+  ctx.textBaseline = 'bottom'
+  ctx.fillText(
+    'Make your own bead patterns at pixels.poofcakes.com',
+    sheetW - padding,
+    canvas.height - 24,
+  )
 
   return canvas
 }
