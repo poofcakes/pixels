@@ -143,7 +143,7 @@ export function PatternCanvasGrid({
   return (
     <div className="inline-block">
       <div
-        className="font-mono tabular-nums text-white/55"
+        className="font-mono tabular-nums text-[#6f6280]/70"
         style={{
           display: 'grid',
           gridTemplateColumns: `${rulerSize}px ${gridW}px`,
@@ -168,7 +168,7 @@ export function PatternCanvasGrid({
                 key={`col-${x}`}
                 className={cn(
                   'flex items-end justify-center',
-                  hovered?.x === x && 'font-semibold text-white',
+                  hovered?.x === x && 'font-semibold text-[#34205f]',
                 )}
                 style={{ width: cellPx, height: rulerSize }}
               >
@@ -187,7 +187,7 @@ export function PatternCanvasGrid({
         }}
       >
         <div
-          className="font-mono tabular-nums text-white/55"
+          className="font-mono tabular-nums text-[#6f6280]/70"
           style={{
             display: 'grid',
             gridTemplateRows: `repeat(${pattern.height}, ${cellPx}px)`,
@@ -200,7 +200,7 @@ export function PatternCanvasGrid({
               key={`row-${y}`}
               className={cn(
                 'flex items-center justify-end pr-1',
-                hovered?.y === y && 'font-semibold text-white',
+                hovered?.y === y && 'font-semibold text-[#34205f]',
               )}
               style={{ width: rulerSize, height: cellPx, fontSize: labelSize }}
             >

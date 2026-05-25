@@ -30,9 +30,35 @@ if (!cname) {
 }
 writeFileSync(path.join(docsDir, 'CNAME'), `${cname}\n`)
 
-const colorsDir = path.join(docsDir, 'colors')
-mkdirSync(colorsDir, { recursive: true })
-cpSync(path.join(docsDir, 'index.html'), path.join(colorsDir, 'index.html'))
+const indexHtml = path.join(docsDir, 'index.html')
+
+/** Client-side routes need a real index.html on GitHub Pages (static hosting). */
+function writeSpaFallback(relativeDir) {
+  const dir = path.join(docsDir, relativeDir)
+  mkdirSync(dir, { recursive: true })
+  cpSync(indexHtml, path.join(dir, 'index.html'))
+}
+
+// GitHub Pages SPA fallback for any path without its own index.html.
+cpSync(indexHtml, path.join(docsDir, '404.html'))
+
+// Keep in sync with BRAND_PALETTES in src/components/ColorChartPage.tsx (excludes "mixed").
+const colorChartSlugs = [
+  'mard',
+  'perler',
+  'hama',
+  'artkal',
+  'artkalC',
+  'artkalM',
+  'nabbi',
+  'pyssla',
+]
+
+writeSpaFallback('colors')
+for (const slug of colorChartSlugs) {
+  writeSpaFallback(path.join('colors', slug))
+}
+writeSpaFallback('about')
 
 // GitHub Pages: skip Jekyll when serving static assets from /docs.
 writeFileSync(path.join(docsDir, '.nojekyll'), '')

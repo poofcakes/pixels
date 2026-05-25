@@ -109,7 +109,7 @@ export function PatternPreviewGrid({
   return (
     <div className="inline-block">
       <div
-        className="font-mono tabular-nums text-white/55"
+        className="font-mono tabular-nums text-[#6f6280]/70"
         style={{
           display: 'grid',
           gridTemplateColumns: `${rulerSize}px repeat(${pattern.width}, ${cellPx}px)`,
@@ -126,7 +126,7 @@ export function PatternPreviewGrid({
               key={`col-${x}`}
               className={cn(
                 'flex items-end justify-center',
-                active && 'font-semibold text-white',
+                active && 'font-semibold text-[#34205f]',
               )}
               style={{
                 width: cellPx,
@@ -148,7 +148,7 @@ export function PatternPreviewGrid({
         }}
       >
         <div
-          className="font-mono tabular-nums text-white/55"
+          className="font-mono tabular-nums text-[#6f6280]/70"
           style={{
             display: 'grid',
             gridTemplateRows: `repeat(${pattern.height}, ${cellPx}px)`,
@@ -163,7 +163,7 @@ export function PatternPreviewGrid({
                 key={`row-${y}`}
                 className={cn(
                   'flex items-center justify-end pr-1',
-                  active && 'font-semibold text-white',
+                  active && 'font-semibold text-[#34205f]',
                 )}
                 style={{
                   width: rulerSize,

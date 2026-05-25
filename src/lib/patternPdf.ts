@@ -18,12 +18,21 @@ function concatBytes(parts: Uint8Array[]): Uint8Array {
   return out
 }
 
+/** ISO A4 in PDF points (72 DPI). */
+const A4_WIDTH_PT = 595
+const A4_HEIGHT_PT = 842
+
 export function canvasToPdfBlob(canvas: HTMLCanvasElement): Blob {
   const encoder = new TextEncoder()
   const jpegDataUrl = canvas.toDataURL('image/jpeg', 1)
   const jpegBytes = base64ToBytes(jpegDataUrl.split(',')[1] ?? '')
-  const pageWidth = Math.round(canvas.width * 0.75)
-  const pageHeight = Math.round(canvas.height * 0.75)
+  const pageWidth = A4_WIDTH_PT
+  const pageHeight = Math.max(
+    A4_HEIGHT_PT,
+    Math.round((canvas.height / canvas.width) * A4_WIDTH_PT),
+  )
+  const drawHeight = Math.round((canvas.height / canvas.width) * pageWidth)
+  const drawY = 0
 
   const objects = [
     '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
@@ -31,7 +40,7 @@ export function canvasToPdfBlob(canvas: HTMLCanvasElement): Blob {
     `3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>\nendobj\n`,
     `4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${canvas.width} /Height ${canvas.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBytes.length} >>\nstream\n`,
     `\nendstream\nendobj\n`,
-    `5 0 obj\n<< /Length ${`q\n${pageWidth} 0 0 ${pageHeight} 0 0 cm\n/Im0 Do\nQ\n`.length} >>\nstream\nq\n${pageWidth} 0 0 ${pageHeight} 0 0 cm\n/Im0 Do\nQ\nendstream\nendobj\n`,
+    `5 0 obj\n<< /Length ${`q\n${pageWidth} 0 0 ${drawHeight} 0 ${drawY} cm\n/Im0 Do\nQ\n`.length} >>\nstream\nq\n${pageWidth} 0 0 ${drawHeight} 0 ${drawY} cm\n/Im0 Do\nQ\nendstream\nendobj\n`,
   ]
 
   const chunks: Uint8Array[] = [encoder.encode('%PDF-1.4\n')]

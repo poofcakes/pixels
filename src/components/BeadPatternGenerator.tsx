@@ -16,7 +16,6 @@ import {
   loadCompletedCodes,
   saveCompletedCodes,
 } from '@/lib/patternCompletedStorage'
-import { hasAnyEdits } from '@/lib/patternEdits'
 import { savePatternPrefs } from '@/lib/beadPatternPreferences'
 import { loadEnabledStock, saveEnabledStock } from '@/lib/beadStockStorage'
 import { cn } from '@/lib/utils'
@@ -61,6 +60,7 @@ export function BeadPatternGenerator({
 
   const onPickExample = useCallback(
     async (example: (typeof EXAMPLE_PATTERNS)[number]) => {
+      if (!confirmRegenerateAfterEdits()) return
       setLoadingExample(example.file)
       try {
         const response = await fetch(exampleAssetPath(exampleAssetBasePath, example.file))
@@ -106,7 +106,7 @@ export function BeadPatternGenerator({
   )
 
   function confirmRegenerateAfterEdits(): boolean {
-    if (!ws.pattern || !hasAnyEdits(ws.editSnapshot)) return true
+    if (!ws.pattern || !ws.hasUnsavedStep4Edits) return true
     return window.confirm(ws.t('regenerateEditsWarning'))
   }
 
@@ -222,63 +222,187 @@ export function BeadPatternGenerator({
     return true
   }
 
-  const canvasSettingsPanel = (
-    <section className="rounded-xl border border-black/10 bg-white/70 p-3 text-sm">
-      <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[#34205f]">
-        {ws.t('canvasSettingsTitle')}
-      </h3>
-      <fieldset className="group flex flex-col gap-4" disabled={!ws.file || ws.loading}>
-        <label className="flex flex-col gap-1.5">
-          <div className="flex items-center justify-between">
-            <span className="font-medium">{ws.t('targetWidthLabel')}</span>
-            <span className="font-mono text-xs tabular-nums">{targetWidthDisplayValue}</span>
-          </div>
-          <input
-            type="range"
-            min={1}
-            max={ws.targetCanvasWidthMax}
-            value={targetWidthSliderValue}
-            onChange={(e) => {
-              const v = Number(e.target.value)
-              setTargetWidthDraft(Math.max(1, Math.min(v, ws.targetCanvasWidthMax)))
-            }}
-            onPointerUp={(e) => commitTargetWidth(Number(e.currentTarget.value))}
-            onKeyUp={(e) => commitTargetWidth(Number(e.currentTarget.value))}
-            onBlur={() => commitTargetWidth(targetWidthDraft)}
-            className="accent-[var(--accent)]"
-          />
-          {ws.outputSizeLabel && (
-            <span className="text-xs text-[var(--muted)]">
-              {ws.t('outputSize', { size: ws.outputSizeLabel })}
-            </span>
-          )}
-          {ws.boardLayoutLabel && (
-            <span className="text-xs text-[var(--muted)]">
-              {ws.t('pegboardLayout', { layout: ws.boardLayoutLabel })}
-            </span>
-          )}
-          <span className="text-xs text-[var(--muted)]">{ws.t('targetWidthHint')}</span>
-        </label>
+  const generatorSettingsPanel = (
+    <section className="rounded-xl border border-black/10 bg-white p-3 text-sm">
+      <div className="mb-3 flex flex-col gap-1">
+        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--accent)]">
+          {ws.t('step3Label')}
+        </span>
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-[#34205f]">
+          {ws.t('generatorSettingsTitle')}
+        </h3>
+      </div>
+      <fieldset
+        className="group flex flex-col gap-4"
+        disabled={!ws.file}
+        aria-busy={ws.loading}
+      >
+        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(180px,240px)_minmax(180px,240px)]">
+          <label className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <span className="font-medium">{ws.t('targetWidthLabel')}</span>
+              <span className="font-mono text-xs tabular-nums">{targetWidthDisplayValue}</span>
+            </div>
+            <input
+              type="range"
+              min={1}
+              max={ws.targetCanvasWidthMax}
+              value={targetWidthSliderValue}
+              onChange={(e) => {
+                const v = Number(e.target.value)
+                setTargetWidthDraft(Math.max(1, Math.min(v, ws.targetCanvasWidthMax)))
+              }}
+              onPointerUp={(e) => commitTargetWidth(Number(e.currentTarget.value))}
+              onKeyUp={(e) => commitTargetWidth(Number(e.currentTarget.value))}
+              onBlur={() => commitTargetWidth(targetWidthDraft)}
+              className="accent-[var(--accent)]"
+            />
+            {ws.outputSizeLabel && (
+              <span className="text-xs text-[var(--muted)]">
+                {ws.t('outputSize', { size: ws.outputSizeLabel })}
+              </span>
+            )}
+            <span className="text-xs text-[var(--muted)]">{ws.t('targetWidthHint')}</span>
+          </label>
 
-        <div className="flex flex-col gap-2">
-          <label className="flex cursor-pointer items-start gap-2">
+          <label className="flex flex-col gap-1.5">
+            <span className="font-medium">{ws.t('pixelBlockLabel')}</span>
+            <select
+              value={
+                ws.settings.targetCanvasWidth
+                  ? 'auto'
+                  : ws.settings.pixelBlockSize === 'auto'
+                    ? 'auto'
+                    : String(ws.settings.pixelBlockSize)
+              }
+              disabled={Boolean(ws.settings.targetCanvasWidth)}
+              onChange={(e) => {
+                const v = e.target.value
+                updateProcessingSettings((s) => ({
+                  ...s,
+                  pixelBlockSize: v === 'auto' ? 'auto' : Number(v),
+                }))
+              }}
+              className="rounded-md border border-black/15 bg-white px-3 py-2 font-mono text-sm disabled:opacity-50"
+            >
+              <option value="auto">{ws.t('pixelBlockAuto')}</option>
+              <option value="1">{ws.t('pixelBlock1')}</option>
+              <option value="2">2×2</option>
+              <option value="3">3×3</option>
+              <option value="4">4×4</option>
+            </select>
+          </label>
+
+          <div className="flex flex-col justify-end gap-2">
+            <label className="flex cursor-pointer items-start gap-2">
+              <input
+                type="checkbox"
+                checked={ws.settings.trimTransparent}
+                onChange={(e) =>
+                  updateProcessingSettings((s) => ({ ...s, trimTransparent: e.target.checked }))
+                }
+                className="mt-0.5 accent-[var(--accent)]"
+              />
+              <span className="font-medium">{ws.t('trimTransparent')}</span>
+            </label>
+
+            <label className="flex cursor-pointer items-start gap-2">
+              <input
+                type="checkbox"
+                checked={ws.settings.removeBackground}
+                onChange={(e) =>
+                  updateProcessingSettings((s) => ({ ...s, removeBackground: e.target.checked }))
+                }
+                className="mt-0.5 accent-[var(--accent)]"
+              />
+              <span className="font-medium">{ws.t('removeBg')}</span>
+            </label>
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <span className="font-medium">{ws.t('paletteLimitLabel')}</span>
+              <span className="font-mono text-xs">{paletteLimitValue}</span>
+            </div>
+            <input
+              type="range"
+              min={20}
+              max={paletteLimitMax}
+              value={paletteLimitValue}
+              onChange={(e) => {
+                const v = Number(e.target.value)
+                setPaletteLimitDraft(Math.max(1, Math.min(v, paletteLimitMax)))
+              }}
+              onPointerUp={(e) => commitPaletteLimit(Number(e.currentTarget.value))}
+              onKeyUp={(e) => commitPaletteLimit(Number(e.currentTarget.value))}
+              onBlur={() => commitPaletteLimit(paletteLimitDraft)}
+              className="accent-[var(--accent)]"
+            />
+            <span className="text-xs text-[var(--muted)]">{ws.t('paletteLimitHint')}</span>
+          </label>
+
+          <label className="flex flex-col gap-1.5 group-disabled:opacity-50">
+            <span className="font-medium">{ws.t('matchMethodLabel')}</span>
+            <select
+              value={ws.settings.matchMethod}
+              onChange={(e) =>
+                updateProcessingSettings((s) => ({
+                  ...s,
+                  matchMethod: e.target.value as typeof s.matchMethod,
+                }))
+              }
+              className="rounded-md border border-black/15 bg-white px-3 py-2 font-mono text-sm disabled:opacity-50"
+            >
+              {ws.BEAD_MATCH_METHODS.map((method) => (
+                <option key={method} value={method}>
+                  {ws.t(`matchMethod.${method}`)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </fieldset>
+      <p className="mt-4 text-xs text-[var(--muted)]">{ws.t('privacy')}</p>
+    </section>
+  )
+
+  const pegboardSettingsPanel = (
+    <div className="rounded-lg border border-black/10 bg-[#fbf7fb] p-3 text-sm">
+      <fieldset className="flex flex-col gap-3" disabled={!ws.file} aria-busy={ws.loading}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <label className="flex min-w-0 cursor-pointer items-start gap-2">
             <input
               type="checkbox"
               checked={Boolean(ws.settings.pegboardSize)}
               onChange={(e) =>
-                updatePegboardSettings((s) => ({
-                  ...s,
-                  pegboardSize: e.target.checked ? (s.pegboardSize ?? 52) : null,
-                }))
+                updatePegboardSettings((s) => {
+                  const enabling = e.target.checked && !s.pegboardSize
+                  return {
+                    ...s,
+                    pegboardSize: e.target.checked ? (s.pegboardSize ?? 52) : null,
+                    cellPx: enabling ? Math.max(1, Math.round(s.cellPx * 0.75)) : s.cellPx,
+                  }
+                })
               }
               className="mt-0.5 accent-[var(--accent)]"
             />
             <span>
               <span className="block font-medium">{ws.t('pegboardFit')}</span>
-              <span className="block text-xs text-[var(--muted)]">{ws.t('pegboardFitHint')}</span>
+              <span className="block text-xs leading-snug text-[var(--muted)]">
+                {ws.t('pegboardFitHint')}
+              </span>
             </span>
           </label>
-          <label className="ml-6 flex items-center gap-2 text-xs text-[var(--muted)]">
+          {ws.boardLayoutLabel && (
+            <span className="rounded-full bg-white px-2 py-1 text-xs text-[var(--muted)]">
+              {ws.t('pegboardLayout', { layout: ws.boardLayoutLabel })}
+            </span>
+          )}
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <label className="flex flex-col gap-1 text-xs text-[var(--muted)]">
             <span>{ws.t('pegboardSizeLabel')}</span>
             <input
               type="number"
@@ -290,10 +414,10 @@ export function BeadPatternGenerator({
                 const size = Math.max(1, Math.min(200, Number(e.target.value) || 52))
                 updatePegboardSettings((s) => ({ ...s, pegboardSize: size }))
               }}
-              className="w-20 rounded-md border border-black/15 bg-white px-2 py-1 font-mono text-xs text-[var(--foreground)] disabled:opacity-50"
+              className="w-full rounded-md border border-black/15 bg-white px-2 py-1 font-mono text-xs text-[var(--foreground)] disabled:opacity-50"
             />
           </label>
-          <label className="ml-6 flex items-center gap-2 text-xs text-[var(--muted)]">
+          <label className="flex flex-col gap-1 text-xs text-[var(--muted)]">
             <span>{ws.t('pegboardAnchorLabel')}</span>
             <select
               value={ws.settings.pegboardAnchor ?? 'center'}
@@ -304,7 +428,7 @@ export function BeadPatternGenerator({
                   pegboardAnchor: e.target.value as PegboardAnchor,
                 }))
               }
-              className="min-w-32 rounded-md border border-black/15 bg-white px-2 py-1 text-xs text-[var(--foreground)] disabled:opacity-50"
+              className="w-full rounded-md border border-black/15 bg-white px-2 py-1 text-xs text-[var(--foreground)] disabled:opacity-50"
             >
               {PEGBOARD_ANCHORS.map((anchor) => (
                 <option key={anchor} value={anchor}>
@@ -314,103 +438,8 @@ export function BeadPatternGenerator({
             </select>
           </label>
         </div>
-
-        <label className="flex flex-col gap-1.5">
-          <div className="flex items-center justify-between">
-            <span className="font-medium">{ws.t('paletteLimitLabel')}</span>
-            <span className="font-mono text-xs">{paletteLimitValue}</span>
-          </div>
-          <input
-            type="range"
-            min={20}
-            max={paletteLimitMax}
-            value={paletteLimitValue}
-            onChange={(e) => {
-              const v = Number(e.target.value)
-              setPaletteLimitDraft(Math.max(1, Math.min(v, paletteLimitMax)))
-            }}
-            onPointerUp={(e) => commitPaletteLimit(Number(e.currentTarget.value))}
-            onKeyUp={(e) => commitPaletteLimit(Number(e.currentTarget.value))}
-            onBlur={() => commitPaletteLimit(paletteLimitDraft)}
-            className="accent-[var(--accent)]"
-          />
-          <span className="text-xs text-[var(--muted)]">{ws.t('paletteLimitHint')}</span>
-        </label>
-
-        <label className="flex flex-col gap-1.5">
-          <span className="font-medium">{ws.t('pixelBlockLabel')}</span>
-          <select
-            value={
-              ws.settings.targetCanvasWidth
-                ? 'auto'
-                : ws.settings.pixelBlockSize === 'auto'
-                  ? 'auto'
-                  : String(ws.settings.pixelBlockSize)
-            }
-            disabled={Boolean(ws.settings.targetCanvasWidth)}
-            onChange={(e) => {
-              const v = e.target.value
-              updateProcessingSettings((s) => ({
-                ...s,
-                pixelBlockSize: v === 'auto' ? 'auto' : Number(v),
-              }))
-            }}
-            className="rounded-md border border-black/15 bg-white px-3 py-2 font-mono text-sm disabled:opacity-50"
-          >
-            <option value="auto">{ws.t('pixelBlockAuto')}</option>
-            <option value="1">{ws.t('pixelBlock1')}</option>
-            <option value="2">2×2</option>
-            <option value="3">3×3</option>
-            <option value="4">4×4</option>
-          </select>
-        </label>
-
-        <label className="flex flex-col gap-1.5 group-disabled:opacity-50">
-          <span className="font-medium">{ws.t('matchMethodLabel')}</span>
-          <select
-            value={ws.settings.matchMethod}
-            onChange={(e) =>
-              updateProcessingSettings((s) => ({
-                ...s,
-                matchMethod: e.target.value as typeof s.matchMethod,
-              }))
-            }
-            className="rounded-md border border-black/15 bg-white px-3 py-2 font-mono text-sm disabled:opacity-50"
-          >
-            {ws.BEAD_MATCH_METHODS.map((method) => (
-              <option key={method} value={method}>
-                {ws.t(`matchMethod.${method}`)}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="flex cursor-pointer items-start gap-2">
-          <input
-            type="checkbox"
-            checked={ws.settings.trimTransparent}
-            onChange={(e) =>
-              updateProcessingSettings((s) => ({ ...s, trimTransparent: e.target.checked }))
-            }
-            className="mt-0.5 accent-[var(--accent)]"
-          />
-          <span className="font-medium">{ws.t('trimTransparent')}</span>
-        </label>
-
-        <label className="flex cursor-pointer items-start gap-2">
-          <input
-            type="checkbox"
-            checked={ws.settings.removeBackground}
-            onChange={(e) =>
-              updateProcessingSettings((s) => ({ ...s, removeBackground: e.target.checked }))
-            }
-            className="mt-0.5 accent-[var(--accent)]"
-          />
-          <span className="font-medium">{ws.t('removeBg')}</span>
-        </label>
       </fieldset>
-      <p className="mt-4 text-xs text-[var(--muted)]">{ws.t('privacy')}</p>
-    </section>
+    </div>
   )
 
   return (
@@ -432,7 +461,13 @@ export function BeadPatternGenerator({
             type="file"
             accept="image/png,image/jpeg,image/webp,image/gif"
             className="sr-only"
-            onChange={(e) => void ws.onPickFile(e.target.files?.[0] ?? null)}
+            onChange={(e) => {
+              const file = e.target.files?.[0] ?? null
+              if (file && confirmRegenerateAfterEdits()) {
+                void ws.onPickFile(file)
+              }
+              e.target.value = ''
+            }}
           />
           <input
             ref={ws.importProjectRef}
@@ -441,49 +476,70 @@ export function BeadPatternGenerator({
             className="sr-only"
             onChange={(e) => {
               const f = e.target.files?.[0]
-              if (f) void ws.importProject(f)
+              if (f && confirmRegenerateAfterEdits()) void ws.importProject(f)
               e.target.value = ''
             }}
           />
 
-          {!ws.file ? (
-            <button
-              type="button"
-              onClick={() => inputRef.current?.click()}
-              className="flex w-full flex-col items-center gap-3 rounded-xl border-2 border-dashed border-black/15 bg-white/50 px-6 py-10 text-center transition-colors hover:border-[var(--accent)] hover:bg-white"
-            >
-              <ImagePlus className="size-8 text-[var(--accent)]" />
-              <span className="font-medium">{ws.t('uploadTitle')}</span>
-              <span className="text-sm text-[var(--muted)]">{ws.t('uploadHint')}</span>
-            </button>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {ws.previewUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={ws.previewUrl}
-                  alt=""
-                  className="mx-auto max-h-40 rounded-lg border border-black/10 bg-white/60 object-contain p-2"
-                />
-              )}
-              <p className="break-words text-center text-xs text-[var(--muted)]">
-                {ws.t('selectedImageMeta', {
-                  name: ws.file.name,
-                  width: ws.fileDimensions?.width ?? '?',
-                  height: ws.fileDimensions?.height ?? '?',
-                })}
-              </p>
+          <section className="flex flex-col gap-4 rounded-2xl border border-black/10 bg-white/80 p-4 shadow-sm">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--accent)]">
+                {ws.t('step1Label')}
+              </span>
+              <span className="text-sm font-semibold uppercase tracking-wide text-[#34205f]">
+                {ws.t('step1Title')}
+              </span>
+            </div>
+
+            {!ws.file ? (
               <button
                 type="button"
                 onClick={() => inputRef.current?.click()}
-                className="text-sm text-[var(--accent)] hover:underline"
+                className="flex w-full flex-col items-center gap-3 rounded-xl border-2 border-dashed border-black/15 bg-white/50 px-6 py-10 text-center transition-colors hover:border-[var(--accent)] hover:bg-white"
               >
-                {ws.t('replaceImage')}
+                <ImagePlus className="size-8 text-[var(--accent)]" />
+                <span className="font-medium">{ws.t('uploadTitle')}</span>
+                <span className="text-sm text-[var(--muted)]">{ws.t('uploadHint')}</span>
               </button>
-            </div>
-          )}
+            ) : (
+              <div className="flex flex-col gap-3">
+                <label className="flex flex-col gap-1 text-xs font-medium text-[var(--muted)]">
+                  {ws.t('projectNameLabel')}
+                  <input
+                    type="text"
+                    value={ws.projectName}
+                    onChange={(e) => ws.setProjectName(e.target.value)}
+                    placeholder={ws.t('projectNamePlaceholder')}
+                    className="rounded-lg border border-black/15 bg-white px-3 py-2 text-sm font-medium text-[var(--foreground)]"
+                  />
+                </label>
 
-          <section className="flex flex-col gap-2">
+                {ws.previewUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={ws.previewUrl}
+                    alt=""
+                    className="mx-auto max-h-40 rounded-lg border border-black/10 bg-white/60 object-contain p-2"
+                  />
+                )}
+                <p className="break-words text-center text-xs text-[var(--muted)]">
+                  {ws.t('selectedImageMeta', {
+                    name: ws.file.name,
+                    width: ws.fileDimensions?.width ?? '?',
+                    height: ws.fileDimensions?.height ?? '?',
+                  })}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => inputRef.current?.click()}
+                  className="text-sm text-[var(--accent)] hover:underline"
+                >
+                  {ws.t('replaceImage')}
+                </button>
+              </div>
+            )}
+
+            <div className="flex flex-col gap-2">
             <div>
               <h2 className="text-sm font-medium">{ws.t('examplesTitle')}</h2>
               <p className="mt-0.5 text-xs text-[var(--muted)]">{ws.t('examplesHint')}</p>
@@ -520,13 +576,15 @@ export function BeadPatternGenerator({
                 )
               })}
             </div>
-          </section>
+            </div>
 
-          <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2">
             {ws.showRestoreBanner && (
               <button
                 type="button"
-                onClick={() => void ws.restoreSession()}
+                onClick={() => {
+                  if (confirmRegenerateAfterEdits()) void ws.restoreSession()
+                }}
                 className="inline-flex items-center gap-1.5 rounded-md bg-[#34205f] px-2.5 py-1.5 text-xs font-medium text-white hover:opacity-90"
               >
                 <RotateCcw className="size-3.5" />
@@ -543,28 +601,10 @@ export function BeadPatternGenerator({
                 <Save className="size-3.5" />
                 {ws.t('saveProject')}
               </button>
-              <button
-                type="button"
-                onClick={() => void ws.exportProject()}
-                disabled={!ws.pattern && ws.projects.length === 0}
-                className="inline-flex items-center gap-1.5 rounded-md border border-black/15 px-2.5 py-1.5 text-xs hover:bg-black/[0.04] disabled:opacity-50"
-              >
-                <Upload className="size-3.5" />
-                {ws.t('exportProject')}
-              </button>
-              <button
-                type="button"
-                onClick={() => ws.importProjectRef.current?.click()}
-                className="inline-flex items-center gap-1.5 rounded-md border border-black/15 px-2.5 py-1.5 text-xs hover:bg-black/[0.04]"
-              >
-                <FolderOpen className="size-3.5" />
-                {ws.t('importProject')}
-              </button>
             </div>
-            <p className="text-xs text-[var(--muted)]">{ws.t('exportProjectHint')}</p>
-          </div>
+            </div>
 
-          {ws.projects.length > 0 && (
+            {ws.projects.length > 0 && (
             <div className="flex flex-col gap-1">
               <span className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
                 {ws.t('projectsTitle')}
@@ -574,7 +614,9 @@ export function BeadPatternGenerator({
                   <li key={p.id} className="flex items-stretch">
                     <button
                       type="button"
-                      onClick={() => void ws.openProject(p)}
+                      onClick={() => {
+                        if (confirmRegenerateAfterEdits()) void ws.openProject(p)
+                      }}
                       className={cn(
                         'flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left hover:bg-black/[0.04]',
                         ws.activeProjectId === p.id && 'bg-[var(--accent)]/10 font-medium',
@@ -604,11 +646,45 @@ export function BeadPatternGenerator({
                   </li>
                 ))}
               </ul>
+              <div className="flex flex-col gap-2 pt-2">
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void ws.exportProject()}
+                    disabled={!ws.pattern && ws.projects.length === 0}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-black/15 px-2.5 py-1.5 text-xs hover:bg-black/[0.04] disabled:opacity-50"
+                  >
+                    <Upload className="size-3.5" />
+                    {ws.t('exportProject')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => ws.importProjectRef.current?.click()}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-black/15 px-2.5 py-1.5 text-xs hover:bg-black/[0.04]"
+                  >
+                    <FolderOpen className="size-3.5" />
+                    {ws.t('importProject')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void ws.deleteAllProjects()}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-red-200 px-2.5 py-1.5 text-xs text-red-700 hover:bg-red-50"
+                  >
+                    <Trash2 className="size-3.5" />
+                    {ws.t('deleteAllProjects')}
+                  </button>
+                </div>
+                <p className="text-xs text-[var(--muted)]">{ws.t('exportProjectHint')}</p>
+              </div>
             </div>
-          )}
+            )}
+          </section>
 
           <section className="rounded-2xl border border-black/10 bg-white/80 p-4 shadow-sm">
             <div className="mb-3 flex min-w-0 flex-col gap-1">
+              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--accent)]">
+                {ws.t('step2Label')}
+              </span>
               <span className="text-sm font-semibold uppercase tracking-wide text-[#34205f]">
                 {ws.t('inventoryTitle')}
               </span>
@@ -712,11 +788,11 @@ export function BeadPatternGenerator({
               basePattern={ws.basePattern}
               palette={ws.palette}
               projectName={ws.projectName}
-              onProjectNameChange={ws.setProjectName}
               gridDisplay={ws.gridDisplay}
               usePaletteColors={ws.settings.usePaletteColors}
               cellPx={ws.settings.cellPx}
-              onCellPxChange={(px) => ws.setSettings((s) => ({ ...s, cellPx: px }))}
+              onCellPxChange={ws.setCellPx}
+              onAutoCellPxChange={ws.setAutoCellPx}
               usePaletteColorsToggle={ws.settings.usePaletteColors}
               onUsePaletteColorsChange={(v) => {
                 ws.setSettings((s) => ({ ...s, usePaletteColors: v }))
@@ -755,7 +831,8 @@ export function BeadPatternGenerator({
               onPaintStrokeEnd={ws.endEditStroke}
               onCopyBreakdown={() => void ws.copyBreakdown()}
               onToggleComplete={toggleComplete}
-              canvasSettingsPanel={canvasSettingsPanel}
+              generatorSettingsPanel={generatorSettingsPanel}
+              pegboardSettingsPanel={pegboardSettingsPanel}
               loading={ws.loading}
             />
           )}

@@ -271,3 +271,12 @@ export async function deleteProjectWithImage(projectId: string): Promise<void> {
   }
   saveProjects(remaining)
 }
+
+export async function deleteAllProjectsWithImages(): Promise<void> {
+  const projects = loadProjects()
+  const imageIds = new Set(projects.map((project) => project.imageId))
+  await Promise.all(
+    [...imageIds].map((imageId) => deletePatternImage(imageId).catch(() => undefined)),
+  )
+  saveProjects([])
+}

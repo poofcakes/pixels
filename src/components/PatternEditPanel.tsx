@@ -1,92 +1,121 @@
 'use client'
 
-import { Undo2 } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { useState } from 'react'
 
 import type { BeadPattern } from '@/lib/beadPattern'
-import {
-  hasPatternEdits,
-  mergeSimilarColorOverrides,
-} from '@/lib/patternEdits'
-type PatternEditPanelProps = {
+import { hasPatternEdits, mergeSimilarColorOverrides } from '@/lib/patternEdits'
+import { cn } from '@/lib/utils'
+
+type MergeSimilarPopoverProps = {
+  open: boolean
   basePattern: BeadPattern
   colorOverrides: Record<string, string>
   onPushOverrides: (overrides: Record<string, string>) => void
-  onUndo: () => void
   onReset: () => void
-  canUndo: boolean
+  onClose: () => void
 }
 
-export function PatternEditPanel({
+export function MergeSimilarPopover({
+  open,
   basePattern,
   colorOverrides,
   onPushOverrides,
-  onUndo,
   onReset,
-  canUndo,
-}: PatternEditPanelProps) {
+  onClose,
+}: MergeSimilarPopoverProps) {
   const t = useTranslations('pattern')
   const [mergeThreshold, setMergeThreshold] = useState(10)
-
   const edited = hasPatternEdits(colorOverrides)
 
-  return (
-    <div className="flex flex-col gap-3 rounded-xl border border-black/10 bg-white/60 p-3">
-      <div>
-        <h3 className="font-medium">{t('mergeSimilar')}</h3>
-        <p className="mt-1 text-xs text-[var(--muted)]">{t('mergeSimilarHint')}</p>
-      </div>
+  if (!open) return null
 
-      <label className="flex flex-col gap-1.5">
-        <span className="font-medium">{t('mergeThreshold')}</span>
-        <div className="flex items-center gap-3">
+  return (
+    <div
+      role="dialog"
+      aria-label={t('mergeSimilar')}
+      className="absolute right-0 top-full z-30 mt-1.5 w-72 rounded-xl border border-black/10 bg-white p-3 shadow-lg"
+    >
+      <p className="text-xs leading-snug text-[var(--muted)]" title={t('mergeSimilarHint')}>
+        <span className="font-medium text-[var(--foreground)]">{t('mergeSimilar')}</span>
+        <span className="text-[var(--muted)]"> · {t('mergeSimilarHintShort')}</span>
+      </p>
+
+      <label className="mt-3 flex flex-col gap-1.5 text-xs">
+        <span className="font-medium text-[var(--muted)]">{t('mergeThreshold')}</span>
+        <div className="flex items-center gap-2">
           <input
             type="range"
             min={2}
             max={25}
             value={mergeThreshold}
             onChange={(e) => setMergeThreshold(Number(e.target.value))}
-            className="flex-1 accent-[var(--accent)]"
+            className="min-w-0 flex-1 accent-[var(--accent)]"
           />
-          <span className="w-12 font-mono text-right text-xs tabular-nums">ΔE {mergeThreshold}</span>
+          <span className="w-9 shrink-0 font-mono text-[10px] tabular-nums text-[var(--muted)]">
+            ΔE {mergeThreshold}
+          </span>
         </div>
+      </label>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
         <button
           type="button"
-          onClick={() =>
+          onClick={() => {
             onPushOverrides(
               mergeSimilarColorOverrides(basePattern, colorOverrides, mergeThreshold),
             )
-          }
-          className="rounded-md border border-black/15 px-3 py-2 text-left hover:bg-black/5"
+            onClose()
+          }}
+          className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
         >
-          {t('mergeSimilar')}
+          {t('mergeSimilarAction')}
         </button>
-      </label>
-
-      {(edited || canUndo) && (
-        <div className="flex flex-wrap gap-3">
+        {edited && (
           <button
             type="button"
-            onClick={onUndo}
-            disabled={!canUndo}
-            aria-label={t('undoEdit')}
-            className="inline-flex items-center gap-1.5 text-sm text-[var(--foreground)] hover:underline disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={() => {
+              onReset()
+              onClose()
+            }}
+            className="text-xs text-[var(--accent)] hover:underline"
           >
-            <Undo2 className="size-3.5" />
-            {t('undoEdit')}
+            {t('resetEdits')}
           </button>
-          {edited && (
-            <button
-              type="button"
-              onClick={onReset}
-              className="text-sm text-[var(--accent)] hover:underline"
-            >
-              {t('resetEdits')}
-            </button>
-          )}
-        </div>
-      )}
+        )}
+      </div>
     </div>
+  )
+}
+
+type MergeSimilarToolbarButtonProps = {
+  open: boolean
+  onToggle: () => void
+  className?: string
+}
+
+export function MergeSimilarToolbarButton({
+  open,
+  onToggle,
+  className,
+}: MergeSimilarToolbarButtonProps) {
+  const t = useTranslations('pattern')
+
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      aria-haspopup="dialog"
+      className={cn(
+        'rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors',
+        open
+          ? 'border-[#34205f] bg-[#34205f]/10 text-[#34205f]'
+          : 'border-black/15 bg-white text-[var(--foreground)] hover:bg-black/[0.04]',
+        className,
+      )}
+    >
+      {t('mergeSimilar')}
+    </button>
   )
 }

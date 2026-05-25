@@ -14,19 +14,23 @@ import {
   Undo2,
 } from 'lucide-react'
 import { useTranslations } from 'next-intl'
-import { useCallback, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { BeadCountList, type BeadStatRow } from '@/components/BeadCountList'
 import { ColorReplacementPicker } from '@/components/ColorReplacementPicker'
-import { PatternEditPanel } from '@/components/PatternEditPanel'
+import {
+  MergeSimilarPopover,
+  MergeSimilarToolbarButton,
+} from '@/components/PatternEditPanel'
 import { PatternPreviewGrid } from '@/components/PatternPreviewGrid'
 import type { StudioTool } from '@/components/patternStudioTypes'
 import type { BeadPattern, PatternGridDisplay } from '@/lib/beadPattern'
 import type { BeadPalette } from '@/lib/beadPalettes'
-import { renderPatternExportToCanvas } from '@/lib/beadPattern'
+import { exportCellPxForPattern, renderPatternExportToCanvas } from '@/lib/beadPattern'
 import { canvasToPdfBlob } from '@/lib/patternPdf'
 import { replaceColorOverrides } from '@/lib/patternEdits'
 import { shouldUseCanvasPreview } from '@/lib/patternPerformance'
+import { rulerBandSize } from '@/lib/patternRuler'
 import { cn } from '@/lib/utils'
 
 type PatternStudioProps = {
@@ -34,11 +38,11 @@ type PatternStudioProps = {
   basePattern: BeadPattern
   palette: BeadPalette
   projectName: string
-  onProjectNameChange: (name: string) => void
   gridDisplay: PatternGridDisplay
   usePaletteColors: boolean
   cellPx: number
   onCellPxChange: (px: number) => void
+  onAutoCellPxChange: (px: number) => void
   usePaletteColorsToggle: boolean
   onUsePaletteColorsChange: (v: boolean) => void
   showCodes: boolean
@@ -66,22 +70,20 @@ type PatternStudioProps = {
   onPaintStrokeEnd: () => void
   onCopyBreakdown: () => void
   onToggleComplete: (code: string) => void
-  canvasSettingsPanel?: ReactNode
+  generatorSettingsPanel?: ReactNode
+  pegboardSettingsPanel?: ReactNode
   loading?: boolean
 }
 
 function exportFileBaseName(name: string): string {
-  return (
+  const baseName =
     name
       .trim()
       .replace(/\.[^.]+$/, '')
       .replace(/[^\w.-]+/g, '-')
-      .replace(/^-+|-+$/g, '') || 'poofpixels-pattern'
-  )
-}
+      .replace(/^-+|-+$/g, '') || 'pattern'
 
-function exportCellSize(cellPx: number): number {
-  return Math.max(36, Math.min(64, cellPx * 3))
+  return baseName.endsWith('-poofpixels') ? baseName : `${baseName}-poofpixels`
 }
 
 export function PatternStudio({
@@ -89,11 +91,11 @@ export function PatternStudio({
   basePattern,
   palette,
   projectName,
-  onProjectNameChange,
   gridDisplay,
   usePaletteColors,
   cellPx,
   onCellPxChange,
+  onAutoCellPxChange,
   usePaletteColorsToggle,
   onUsePaletteColorsChange,
   showCodes,
@@ -121,14 +123,54 @@ export function PatternStudio({
   onPaintStrokeEnd,
   onCopyBreakdown,
   onToggleComplete,
-  canvasSettingsPanel,
+  generatorSettingsPanel,
+  pegboardSettingsPanel,
   loading,
 }: PatternStudioProps) {
   const t = useTranslations('pattern')
   const [tool, setTool] = useState<StudioTool>('select')
   const [replaceCode, setReplaceCode] = useState<string | null>(null)
   const [brushPickerOpen, setBrushPickerOpen] = useState(false)
+  const [mergeOpen, setMergeOpen] = useState(false)
+  const mergePopoverRef = useRef<HTMLDivElement>(null)
+  const previewContainerRef = useRef<HTMLDivElement>(null)
   const paintingRef = useRef(false)
+
+  useEffect(() => {
+    if (!mergeOpen) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (mergePopoverRef.current?.contains(event.target as Node)) return
+      setMergeOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [mergeOpen])
+
+  useEffect(() => {
+    const container = previewContainerRef.current
+    if (!container) return
+
+    const updateAutoZoom = () => {
+      const contentWidth = Math.max(1, container.clientWidth - 32)
+      let nextCellPx = 1
+      for (let px = 48; px >= 1; px--) {
+        const rulerPx = rulerBandSize(px)
+        const gridGapsPx = Math.max(0, pattern.width - 1)
+        const rowRulerGapPx = 1
+        const renderedWidth = rulerPx + rowRulerGapPx + pattern.width * px + gridGapsPx
+        if (renderedWidth <= contentWidth) {
+          nextCellPx = px
+          break
+        }
+      }
+      onAutoCellPxChange(nextCellPx)
+    }
+
+    updateAutoZoom()
+    const observer = new ResizeObserver(updateAutoZoom)
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [onAutoCellPxChange, pattern.width])
 
   const replaceHex =
     statRows.find((r) => r.code === replaceCode)?.hex ?? brushHex
@@ -160,7 +202,8 @@ export function PatternStudio({
   }, [onPaintStrokeEnd])
 
   const downloadPng = useCallback(async () => {
-    const canvas = await renderPatternExportToCanvas(pattern, exportCellSize(cellPx), gridDisplay)
+    const exportCellPx = exportCellPxForPattern(pattern)
+    const canvas = await renderPatternExportToCanvas(pattern, exportCellPx, gridDisplay)
     canvas.toBlob((blob) => {
       if (!blob) return
       const a = document.createElement('a')
@@ -169,57 +212,48 @@ export function PatternStudio({
       a.click()
       URL.revokeObjectURL(a.href)
     })
-  }, [pattern, cellPx, exportName, gridDisplay])
+  }, [pattern, exportName, gridDisplay])
 
   const downloadPdf = useCallback(async () => {
-    const canvas = await renderPatternExportToCanvas(pattern, exportCellSize(cellPx), gridDisplay)
+    const exportCellPx = exportCellPxForPattern(pattern)
+    const canvas = await renderPatternExportToCanvas(pattern, exportCellPx, gridDisplay)
     const blob = canvasToPdfBlob(canvas)
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
     a.download = `${exportName}.pdf`
     a.click()
     URL.revokeObjectURL(a.href)
-  }, [pattern, cellPx, exportName, gridDisplay])
+  }, [pattern, exportName, gridDisplay])
 
   return (
     <div className="flex min-h-[min(720px,80vh)] min-w-0 flex-col gap-4 rounded-2xl border border-black/10 bg-white/80 p-4 shadow-sm lg:sticky lg:top-4">
-      <div className="flex flex-col gap-3 border-b border-black/10 pb-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-sm font-semibold uppercase tracking-wide text-[#34205f]">
-            {t('studioTitle')}
-          </span>
-          <label className="flex min-w-[12rem] flex-1 flex-col gap-1 text-xs font-medium text-[var(--muted)] sm:max-w-xs">
-            {t('projectNameLabel')}
-            <input
-              type="text"
-              value={projectName}
-              onChange={(e) => onProjectNameChange(e.target.value)}
-              placeholder={t('projectNamePlaceholder')}
-              className="rounded-lg border border-black/15 bg-white px-3 py-2 text-sm font-medium text-[var(--foreground)]"
-            />
-          </label>
-          <div className="ml-auto flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => void downloadPng()}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--accent)] px-3 py-2 text-sm text-white hover:opacity-90"
-            >
-              <Download className="size-4" />
-              {t('downloadPng')}
-            </button>
-            <button
-              type="button"
-              onClick={() => void downloadPdf()}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-black/15 bg-white px-3 py-2 text-sm hover:bg-black/[0.04]"
-            >
-              <FileText className="size-4" />
-              {t('downloadPdf')}
-            </button>
+      {generatorSettingsPanel}
+
+      <section className="flex min-h-0 flex-1 flex-col gap-4 rounded-xl border border-black/10 bg-white/70 p-3">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--accent)]">
+              {t('step4Label')}
+            </span>
+            <span className="text-sm font-semibold uppercase tracking-wide text-[#34205f]">
+              {t('step4Title')}
+            </span>
+            <p className="text-xs text-[var(--muted)]">{t('step4Warning')}</p>
           </div>
+          <span
+            className={cn(
+              'inline-flex min-h-5 items-center gap-1.5 text-xs text-[var(--muted)] transition-opacity',
+              loading ? 'opacity-100' : 'pointer-events-none opacity-0',
+            )}
+            aria-hidden={!loading}
+          >
+            <Loader2 className="size-3.5 animate-spin" />
+            {t('processing')}
+          </span>
         </div>
 
-        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)]">
-          <div className="flex flex-col gap-3">
+        <div className="grid min-w-0 items-stretch gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]">
+          <div className="xl:col-span-2 flex flex-wrap items-center gap-3">
             <div className="flex flex-wrap items-center gap-2">
               {(
                 [
@@ -272,73 +306,38 @@ export function PatternStudio({
               >
                 <FlipHorizontal2 className="size-4" />
               </button>
-              <label className="ml-auto flex items-center gap-2 text-sm">
-                <span className="text-[var(--muted)]">{t('zoomLabel')}</span>
-                <input
-                  type="range"
-                  min={8}
-                  max={48}
-                  value={cellPx}
-                  onChange={(e) => onCellPxChange(Number(e.target.value))}
-                  className="w-28 accent-[var(--accent)]"
+              <div className="relative" ref={mergePopoverRef}>
+                <MergeSimilarToolbarButton
+                  open={mergeOpen}
+                  onToggle={() => setMergeOpen((open) => !open)}
                 />
-                <span className="w-10 font-mono text-xs">{cellPx}px</span>
-              </label>
+                <MergeSimilarPopover
+                  open={mergeOpen}
+                  basePattern={basePattern}
+                  colorOverrides={colorOverrides}
+                  onPushOverrides={onPushOverrides}
+                  onReset={onResetEdits}
+                  onClose={() => setMergeOpen(false)}
+                />
+              </div>
             </div>
-
-            <div className="flex flex-wrap gap-3 text-sm">
-              <label className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={usePaletteColorsToggle}
-                  onChange={(e) => onUsePaletteColorsChange(e.target.checked)}
-                  className="accent-[var(--accent)]"
-                />
-                {t('usePaletteColors', { palette: palette.label })}
-              </label>
-              <label className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={showCodes}
-                  onChange={(e) => onShowCodesChange(e.target.checked)}
-                  className="accent-[var(--accent)]"
-                />
-                {t('showCodes', { palette: palette.label })}
-              </label>
-              <label className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={showGridGuidesOnTop}
-                  onChange={(e) => onShowGridGuidesOnTopChange(e.target.checked)}
-                  className="accent-[var(--accent)]"
-                />
-                {t('showGridGuidesOnTop')}
-              </label>
-            </div>
+            <label className="ml-auto flex items-center gap-2 text-sm">
+              <span className="text-[var(--muted)]">{t('zoomLabel')}</span>
+              <input
+                type="range"
+                min={1}
+                max={48}
+                value={cellPx}
+                onChange={(e) => onCellPxChange(Number(e.target.value))}
+                className="w-28 accent-[var(--accent)]"
+              />
+              <span className="w-10 font-mono text-xs">{cellPx}px</span>
+            </label>
           </div>
 
-          <PatternEditPanel
-            basePattern={basePattern}
-            colorOverrides={colorOverrides}
-            onPushOverrides={onPushOverrides}
-            onUndo={onUndo}
-            onReset={onResetEdits}
-            canUndo={canUndo}
-          />
-        </div>
-      </div>
-
-      {loading && (
-        <div className="flex items-center gap-2 text-sm text-[var(--muted)]">
-          <Loader2 className="size-4 animate-spin" />
-          {t('processing')}
-        </div>
-      )}
-
-      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)]">
-        <div className="flex min-w-0 flex-col gap-4">
           <div
-            className="min-h-0 overflow-auto rounded-xl border border-black/10 bg-[#1a1814] p-4 [scrollbar-gutter:stable_both-edges]"
+            ref={previewContainerRef}
+            className="min-h-0 max-h-[min(65vh,720px)] overflow-auto rounded-xl border border-black/10 bg-[#f5edf4] p-4 [scrollbar-gutter:stable_both-edges]"
             onPointerUp={endPaint}
             onPointerLeave={endPaint}
           >
@@ -359,32 +358,7 @@ export function PatternStudio({
             />
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-black/10 pt-3 text-sm">
-            <p className="font-medium tabular-nums">
-              {t('footerSummary', {
-                beads: pattern.totalBeads.toLocaleString(),
-                colors: pattern.uniqueColors,
-                width: pattern.designWidth ?? pattern.width,
-                height: pattern.designHeight ?? pattern.height,
-              })}
-            </p>
-            <button
-              type="button"
-              onClick={onCopyBreakdown}
-              className="inline-flex items-center gap-1 text-[var(--accent)] hover:underline"
-            >
-              <Copy className="size-3.5" />
-              {t('copyBreakdown')}
-            </button>
-          </div>
-
-          {shouldUseCanvasPreview(pattern.width * pattern.height) && (
-            <p className="mt-2 text-xs text-[var(--muted)]">
-              {t('canvasPreviewNote', { count: pattern.width * pattern.height })}
-            </p>
-          )}
-
-          <div className="max-w-3xl">
+          <div className="flex h-full min-h-0 flex-col">
             <BeadCountList
               pattern={pattern}
               rows={statRows}
@@ -396,10 +370,113 @@ export function PatternStudio({
               onToggleComplete={onToggleComplete}
             />
           </div>
+
+          <div className="xl:col-span-2 flex flex-col gap-2 border-t border-black/10 pt-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+              <p className="font-medium tabular-nums">
+                {t('footerSummary', {
+                  beads: pattern.totalBeads.toLocaleString(),
+                  colors: pattern.uniqueColors,
+                  width: pattern.designWidth ?? pattern.width,
+                  height: pattern.designHeight ?? pattern.height,
+                })}
+              </p>
+              <button
+                type="button"
+                onClick={onCopyBreakdown}
+                className="inline-flex items-center gap-1 text-[var(--accent)] hover:underline"
+              >
+                <Copy className="size-3.5" />
+                {t('copyBreakdown')}
+              </button>
+            </div>
+
+            {shouldUseCanvasPreview(pattern.width * pattern.height) && (
+              <p className="text-xs text-[var(--muted)]">
+                {t('canvasPreviewNote', { count: pattern.width * pattern.height })}
+              </p>
+            )}
+          </div>
         </div>
 
-        {canvasSettingsPanel}
-      </div>
+        <section className="flex flex-col gap-3 rounded-xl border border-black/10 bg-white p-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--accent)]">
+                {t('step5Label')}
+              </span>
+              <span className="text-sm font-semibold uppercase tracking-wide text-[#34205f]">
+                {t('step5Title')}
+              </span>
+            </div>
+            <p className="max-w-xl text-xs text-[var(--muted)]">{t('step5Hint')}</p>
+          </div>
+          <div className="grid gap-3 xl:grid-cols-[minmax(220px,320px)_minmax(0,1fr)]">
+            <div className="rounded-lg border border-black/10 bg-[#fbf7fb] p-3">
+              <div className="flex flex-col gap-2 text-sm">
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={usePaletteColorsToggle}
+                    onChange={(e) => onUsePaletteColorsChange(e.target.checked)}
+                    className="accent-[var(--accent)]"
+                  />
+                  {t('usePaletteColors', { palette: palette.label })}
+                </label>
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={showCodes}
+                    onChange={(e) => onShowCodesChange(e.target.checked)}
+                    className="accent-[var(--accent)]"
+                  />
+                  {t('showCodes', { palette: palette.label })}
+                </label>
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={showGridGuidesOnTop}
+                    onChange={(e) => onShowGridGuidesOnTopChange(e.target.checked)}
+                    className="accent-[var(--accent)]"
+                  />
+                  {t('showGridGuidesOnTop')}
+                </label>
+              </div>
+            </div>
+            {pegboardSettingsPanel}
+          </div>
+        </section>
+
+        <section className="flex flex-col gap-3 rounded-xl border border-black/10 bg-white p-3">
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--accent)]">
+              {t('step6Label')}
+            </span>
+            <span className="text-sm font-semibold uppercase tracking-wide text-[#34205f]">
+              {t('step6Title')}
+            </span>
+            <p className="text-xs text-[var(--muted)]">{t('step6Hint')}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void downloadPng()}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--accent)] px-3 py-2 text-sm text-white hover:opacity-90"
+            >
+              <Download className="size-4" />
+              {t('downloadPng')}
+            </button>
+            <button
+              type="button"
+              onClick={() => void downloadPdf()}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-black/15 bg-white px-3 py-2 text-sm hover:bg-black/[0.04]"
+            >
+              <FileText className="size-4" />
+              {t('downloadPdf')}
+            </button>
+          </div>
+        </section>
+      </section>
 
       <ColorReplacementPicker
         open={replaceCode !== null}

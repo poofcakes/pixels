@@ -4,7 +4,7 @@ import { X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
 
-import type { BeadColor, BeadPalette } from '@/lib/beadPalettes'
+import { BEAD_PALETTES, type BeadColor, type BeadPalette } from '@/lib/beadPalettes'
 import { MARD_STOCK_SERIES } from '@/lib/mardStockSeries'
 import { cn } from '@/lib/utils'
 
@@ -24,6 +24,46 @@ function seriesIdFromCode(code: string): string {
   return m?.[1]?.toUpperCase() ?? '#'
 }
 
+type PickerColor = BeadColor & { brandId?: string }
+
+function displayCodeForBrand(color: PickerColor, brand: BeadPalette): string {
+  const prefix = `${brand.label} `
+  return color.code.startsWith(prefix) ? color.code.slice(prefix.length) : color.code
+}
+
+function brandForColor(color: PickerColor): BeadPalette | null {
+  if (color.brandId) {
+    return BEAD_PALETTES.find((palette) => palette.id === color.brandId) ?? null
+  }
+  return BEAD_PALETTES.find((palette) => color.code.startsWith(`${palette.label} `)) ?? null
+}
+
+function groupBrandColors(brand: BeadPalette, colors: PickerColor[]) {
+  const sorted = [...colors].sort((a, b) =>
+    displayCodeForBrand(a, brand).localeCompare(displayCodeForBrand(b, brand), undefined, {
+      numeric: true,
+    }),
+  )
+
+  if (brand.id === 'mard') {
+    return MARD_STOCK_SERIES.map((series) => ({
+      id: series.id,
+      colors: sorted.filter((color) => seriesIdFromCode(displayCodeForBrand(color, brand)) === series.id),
+    })).filter((series) => series.colors.length > 0)
+  }
+
+  const groups = new Map<string, PickerColor[]>()
+  for (const color of sorted) {
+    const id = seriesIdFromCode(displayCodeForBrand(color, brand))
+    groups.set(id, [...(groups.get(id) ?? []), color])
+  }
+
+  return [...groups.entries()].map(([id, groupColors]) => ({
+    id,
+    colors: groupColors,
+  }))
+}
+
 export function ColorReplacementPicker({
   open,
   palette,
@@ -35,7 +75,9 @@ export function ColorReplacementPicker({
   onPick,
 }: ColorReplacementPickerProps) {
   const t = useTranslations('pattern')
+  const tMardSeries = useTranslations('colors.series')
   const isMard = palette.id === 'mard'
+  const isMixed = palette.id === 'mixed'
 
   const seriesTabs = useMemo(() => {
     if (!isMard) return null
@@ -54,6 +96,61 @@ export function ColorReplacementPicker({
     if (!q) return colors
     return colors.filter((c) => c.code.toLowerCase().includes(q))
   }, [palette.colors, isMard, seriesTabs, activeSeries, query])
+
+  const mixedGroups = useMemo(() => {
+    if (!isMixed) return null
+    const colors = filteredColors as PickerColor[]
+    const grouped = new Map<string, { brand: BeadPalette; colors: PickerColor[] }>()
+
+    for (const color of colors) {
+      const brand = brandForColor(color)
+      if (!brand) continue
+      const current = grouped.get(brand.id) ?? { brand, colors: [] }
+      current.colors.push(color)
+      grouped.set(brand.id, current)
+    }
+
+    return [...grouped.values()].map(({ brand, colors: brandColors }) => ({
+      brand,
+      series: groupBrandColors(brand, brandColors),
+    }))
+  }, [filteredColors, isMixed])
+
+  function seriesLabel(brand: BeadPalette, seriesId: string): string {
+    if (brand.id !== 'mard') return seriesId
+    try {
+      return tMardSeries(seriesId as never)
+    } catch {
+      return seriesId
+    }
+  }
+
+  function renderColorButton(color: PickerColor, label = color.code) {
+    return (
+      <li key={color.code}>
+        <button
+          type="button"
+          onClick={() => {
+            onPick(color.code)
+            onClose()
+          }}
+          className={cn(
+            'flex w-full flex-col items-center gap-1 rounded-lg border p-1 transition-colors hover:border-[var(--accent)]',
+            color.code === replacingCode && 'ring-2 ring-[var(--accent)]',
+          )}
+          title={color.code}
+        >
+          <span
+            className="h-10 w-full rounded-t-lg rounded-b-sm border border-black/10"
+            style={{ backgroundColor: color.hex }}
+          />
+          <span className="max-w-full truncate font-mono text-[10px] font-semibold">
+            {label}
+          </span>
+        </button>
+      </li>
+    )
+  }
 
   if (!open) return null
 
@@ -127,32 +224,34 @@ export function ColorReplacementPicker({
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
-          <ul className="grid grid-cols-[repeat(auto-fill,minmax(4.25rem,1fr))] gap-2">
-            {filteredColors.map((color) => (
-              <li key={color.code}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onPick(color.code)
-                    onClose()
-                  }}
-                  className={cn(
-                    'flex w-full flex-col items-center gap-1 rounded-lg border p-1 transition-colors hover:border-[var(--accent)]',
-                    color.code === replacingCode && 'ring-2 ring-[var(--accent)]',
-                  )}
-                  title={color.code}
-                >
-                  <span
-                    className="h-10 w-full rounded-t-lg rounded-b-sm border border-black/10"
-                    style={{ backgroundColor: color.hex }}
-                  />
-                  <span className="max-w-full truncate font-mono text-[10px] font-semibold">
-                    {color.code}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          {mixedGroups ? (
+            <div className="flex flex-col gap-5">
+              {mixedGroups.map(({ brand, series }) => (
+                <section key={brand.id} className="flex flex-col gap-3">
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-[#34205f]">
+                    {brand.label}
+                  </h3>
+                  {series.map((group) => (
+                    <section key={`${brand.id}-${group.id}`}>
+                      <h4 className="mb-1.5 flex items-baseline gap-2 text-xs font-medium">
+                        <span className="font-mono">{group.id}</span>
+                        <span className="text-[var(--muted)]">{seriesLabel(brand, group.id)}</span>
+                      </h4>
+                      <ul className="grid grid-cols-[repeat(auto-fill,minmax(4.25rem,1fr))] gap-2">
+                        {group.colors.map((color) =>
+                          renderColorButton(color, displayCodeForBrand(color, brand)),
+                        )}
+                      </ul>
+                    </section>
+                  ))}
+                </section>
+              ))}
+            </div>
+          ) : (
+            <ul className="grid grid-cols-[repeat(auto-fill,minmax(4.25rem,1fr))] gap-2">
+              {filteredColors.map((color) => renderColorButton(color))}
+            </ul>
+          )}
         </div>
 
         <footer className="border-t border-black/10 px-5 py-2 text-xs text-[var(--muted)]">

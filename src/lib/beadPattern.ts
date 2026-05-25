@@ -787,12 +787,15 @@ export async function patternFromImageFile(
 
   if (options.targetCanvasWidth && options.targetCanvasWidth > 0) {
     const targetWidth = Math.min(options.targetCanvasWidth, naturalImageData.width)
-    imageData = downsampleToTargetWidth(
-      trimmedImageData,
-      targetWidth,
-      alphaThreshold,
-      options.dominantSampling !== false,
-    )
+    imageData =
+      targetWidth === naturalImageData.width
+        ? naturalImageData
+        : downsampleToTargetWidth(
+            naturalImageData,
+            targetWidth,
+            alphaThreshold,
+            options.dominantSampling !== false,
+          )
     pixelBlockSize = Math.max(
       1,
       Math.round(trimmedImageData.width / imageData.width),
@@ -1250,6 +1253,25 @@ function drawExportRulers(
   ctx.restore()
 }
 
+/** A4 page width in px at 96 DPI (portrait). Preview zoom does not use this. */
+export const EXPORT_A4_WIDTH_PX = 794
+export const EXPORT_SHEET_PADDING_PX = 48
+
+/** Largest bead size so the pattern grid spans the printable width on an A4 export. */
+export function exportCellPxForPattern(pattern: BeadPattern): number {
+  const contentWidth = EXPORT_A4_WIDTH_PX - EXPORT_SHEET_PADDING_PX * 2
+  const minCellPx = 4
+  const maxCellPx = 72
+  let best = minCellPx
+
+  for (let cellPx = minCellPx; cellPx <= maxCellPx; cellPx++) {
+    const exportGridW = rulerBandSize(cellPx) + pattern.width * cellPx
+    if (exportGridW <= contentWidth) best = cellPx
+  }
+
+  return best
+}
+
 export async function renderPatternExportToCanvas(
   pattern: BeadPattern,
   cellPx: number,
@@ -1265,8 +1287,7 @@ export async function renderPatternExportToCanvas(
   const rulerSize = rulerBandSize(cellPx)
   const exportGridW = rulerSize + gridW
   const exportGridH = rulerSize + gridH
-  const minSheetW = 1080
-  const sheetW = Math.max(minSheetW, exportGridW + padding * 2)
+  const sheetW = EXPORT_A4_WIDTH_PX
   const contentW = sheetW - padding * 2
   const colorRows = Math.ceil(stats.length / Math.max(1, Math.floor((contentW + 10) / (156 + 10))))
   const computedBreakdownH = 30 + 18 + colorRows * 36 + Math.max(0, colorRows - 1) * 10

@@ -38,7 +38,7 @@ export function BeadCountList({
   const maxCount = rows[0]?.count ?? 1
 
   return (
-    <section className="flex flex-col gap-2">
+    <section className="flex h-full min-h-0 flex-col gap-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-[#34205f]">
           {t('beadCountTitle', { count: pattern.uniqueColors })}
@@ -58,7 +58,7 @@ export function BeadCountList({
           </span>
         </div>
       </div>
-      <ul className="flex max-h-[min(420px,50vh)] flex-col gap-1 overflow-y-auto pr-1">
+      <ul className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pr-1">
         {rows.map((row) => {
           const isSelected = selectedCode === row.code
           const isHovered = hoveredCode === row.code

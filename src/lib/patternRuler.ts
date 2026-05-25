@@ -13,7 +13,7 @@ export function shouldShowRulerLabel(index: number, length: number, step: number
 }
 
 export function rulerBandSize(cellPx: number): number {
-  return Math.max(18, Math.min(28, cellPx + 2))
+  return Math.max(16, Math.min(22, Math.floor(cellPx * 0.6) + 8))
 }
 
 export function rulerFontSize(cellPx: number): number {

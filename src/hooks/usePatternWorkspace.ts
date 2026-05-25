@@ -28,6 +28,7 @@ import {
 import {
   applyAllPatternEdits,
   cellKey,
+  hasAnyEdits,
   replaceColorOverrides,
   type EditSnapshot,
 } from '@/lib/patternEdits'
@@ -36,6 +37,7 @@ import {
   clearAutosave,
   createProjectId,
   type CellEditMap,
+  deleteAllProjectsWithImages,
   deleteProjectWithImage,
   exportProjectsFile,
   importProjectFiles,
@@ -220,6 +222,16 @@ function codesProcessKey(codes: ReadonlySet<string> | null): string {
   return [...codes].sort(beadCodeCollator.compare).join('|')
 }
 
+function recordsEqual<T extends string | null>(
+  a: Record<string, T>,
+  b: Record<string, T>,
+): boolean {
+  const aKeys = Object.keys(a)
+  const bKeys = Object.keys(b)
+  if (aKeys.length !== bKeys.length) return false
+  return aKeys.every((key) => a[key] === b[key])
+}
+
 function projectThumbnailDataUrl(pattern: BeadPattern, display: PatternGridDisplay): string {
   const maxEdge = 96
   const cellPx = Math.max(1, Math.min(4, Math.floor(maxEdge / Math.max(pattern.width, pattern.height))))
@@ -267,6 +279,7 @@ export function usePatternWorkspace() {
   const editStrokeActiveRef = useRef(false)
   const editStrokeHasEditRef = useRef(false)
   const preserveEditsOnProcessRef = useRef(false)
+  const autoZoomRef = useRef(true)
   const lastProcessSnapshotRef = useRef<ProcessSnapshot | null>(null)
   const editSnapshot = editHistory[editHistory.length - 1] ?? {
     colorOverrides: {},
@@ -552,6 +565,7 @@ export function usePatternWorkspace() {
       if (!next) return
       if (previewUrl) URL.revokeObjectURL(previewUrl)
       setAutoCanvasWidth(null)
+      autoZoomRef.current = true
       setActiveProjectId(null)
       setProjectName(fileBaseName(next.name))
       setPreviewUrl(URL.createObjectURL(next))
@@ -603,6 +617,7 @@ export function usePatternWorkspace() {
     setActiveProjectId(session.projectId)
     setImageId(session.imageId)
     setAutoCanvasWidth(null)
+    autoZoomRef.current = false
     preserveEditsOnProcessRef.current = true
     if (previewUrl) URL.revokeObjectURL(previewUrl)
     setPreviewUrl(URL.createObjectURL(stored.blob))
@@ -705,11 +720,10 @@ export function usePatternWorkspace() {
       })
   }, [pattern, statsSortMode])
 
-  const brushHex = useMemo(() => {
-    const fromPattern = pattern?.cells.find((c) => c.bead?.code === brushCode)?.bead?.hex
-    if (fromPattern) return fromPattern
-    return palette.colors.find((c) => c.code === brushCode)?.hex ?? '#888'
-  }, [brushCode, pattern, palette.colors])
+  const brushHex = useMemo(
+    () => palette.colors.find((c) => c.code === brushCode)?.hex ?? '#888',
+    [brushCode, palette.colors],
+  )
 
   const copyBreakdown = useCallback(async () => {
     if (!pattern) return
@@ -778,6 +792,7 @@ export function usePatternWorkspace() {
       setActiveProjectId(project.id)
       setImageId(project.imageId)
       setAutoCanvasWidth(null)
+      autoZoomRef.current = false
       preserveEditsOnProcessRef.current = true
       if (previewUrl) URL.revokeObjectURL(previewUrl)
       setPreviewUrl(URL.createObjectURL(stored.blob))
@@ -804,6 +819,29 @@ export function usePatternWorkspace() {
     [activeProjectId, file, persistImage, t],
   )
 
+  const deleteAllProjects = useCallback(async () => {
+    if (projects.length === 0) return
+    if (!window.confirm(t('deleteAllProjectsConfirm', { count: projects.length }))) return
+
+    await deleteAllProjectsWithImages()
+    setProjects([])
+    setActiveProjectId(null)
+    if (file) {
+      const id = await persistImage(file)
+      setImageId(id)
+    }
+  }, [file, persistImage, projects.length, t])
+
+  const setCellPx = useCallback((px: number) => {
+    autoZoomRef.current = false
+    setSettings((s) => ({ ...s, cellPx: px }))
+  }, [])
+
+  const setAutoCellPx = useCallback((px: number) => {
+    if (!autoZoomRef.current) return
+    setSettings((s) => (s.cellPx === px ? s : { ...s, cellPx: px }))
+  }, [])
+
   const exportProjects = useCallback(async () => {
     const savedProject = pattern ? await saveCurrentProject() : undefined
     const projectsToExport = savedProject
@@ -814,9 +852,12 @@ export function usePatternWorkspace() {
 
     const blob = await exportProjectsFile(projectsToExport)
     const a = document.createElement('a')
-    const date = new Date().toISOString().slice(0, 10)
+    const timestamp = new Date()
+      .toISOString()
+      .replace(/\.\d{3}Z$/, 'Z')
+      .replace(/[:]/g, '-')
     a.href = URL.createObjectURL(blob)
-    a.download = `poofpixels-projects-backup-${date}.poofpixels.json`
+    a.download = `poofpixels-projects-backup-${timestamp}.poofpixels.json`
     a.click()
     URL.revokeObjectURL(a.href)
   }, [pattern, projects, saveCurrentProject])
@@ -857,6 +898,18 @@ export function usePatternWorkspace() {
 
   const patternSig = pattern ? patternFingerprint(pattern) : null
   const usedCodesKey = pattern ? Object.keys(pattern.counts).join('|') : ''
+  const activeSavedProject = useMemo(
+    () => projects.find((project) => project.id === activeProjectId) ?? null,
+    [activeProjectId, projects],
+  )
+  const hasUnsavedStep4Edits = useMemo(() => {
+    if (!hasAnyEdits(editSnapshot)) return false
+    if (!activeSavedProject) return true
+    return (
+      !recordsEqual(editSnapshot.colorOverrides, activeSavedProject.colorOverrides) ||
+      !recordsEqual(editSnapshot.cellEdits, activeSavedProject.cellEdits)
+    )
+  }, [activeSavedProject, editSnapshot])
 
   useEffect(() => {
     if (!patternSig || !usedCodesKey) {
@@ -875,6 +928,7 @@ export function usePatternWorkspace() {
     basePattern,
     pattern,
     editSnapshot,
+    hasUnsavedStep4Edits,
     canUndoEdits,
     pushEdit: (overrides: Record<string, string>) =>
       pushEdit({ ...editSnapshot, colorOverrides: overrides }),
@@ -890,6 +944,8 @@ export function usePatternWorkspace() {
     showRestoreBanner,
     settings,
     setSettings,
+    setCellPx,
+    setAutoCellPx,
     projectName,
     setProjectName,
     projects,
@@ -916,6 +972,7 @@ export function usePatternWorkspace() {
     saveCurrentProject,
     openProject,
     deleteProject,
+    deleteAllProjects,
     exportProject: exportProjects,
     importProject,
     outputSizeLabel,
