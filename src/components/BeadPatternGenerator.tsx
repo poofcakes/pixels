@@ -1,7 +1,24 @@
 'use client'
 
-import { FolderOpen, ImagePlus, Loader2, RotateCcw, Save, Trash2, Upload } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  ArrowDown,
+  ArrowDownLeft,
+  ArrowDownRight,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  ArrowUpLeft,
+  ArrowUpRight,
+  CircleDot,
+  FolderOpen,
+  ImagePlus,
+  Loader2,
+  RotateCcw,
+  Save,
+  Trash2,
+  Upload,
+} from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 
 import { BeadInventoryPicker } from '@/components/BeadInventoryPicker'
 import { PatternStudio } from '@/components/PatternStudio'
@@ -20,29 +37,132 @@ import { savePatternPrefs } from '@/lib/beadPatternPreferences'
 import { loadEnabledStock, saveEnabledStock } from '@/lib/beadStockStorage'
 import { cn } from '@/lib/utils'
 
+const EXAMPLE_THUMB_SCALE = 1.5
+
 const EXAMPLE_PATTERNS = [
-  { file: 'omok-piece-bloctopus.webp', name: 'Bloctopus' },
-  { file: 'omok-piece-mushroom.webp', name: 'Mushroom' },
-  { file: 'omok-piece-octopus.webp', name: 'Octopus' },
-  { file: 'omok-piece-panda-teddy.webp', name: 'Panda teddy' },
-  { file: 'omok-piece-pig.webp', name: 'Pig' },
-  { file: 'omok-piece-pink-teddy.webp', name: 'Pink teddy' },
-  { file: 'omok-piece-slime.webp', name: 'Slime' },
-  { file: 'omok-piece-trixter.webp', name: 'Trixter' },
+  { file: 'omok-piece-bloctopus.webp', name: 'Bloctopus', width: 23, height: 22 },
+  { file: 'omok-piece-mushroom.webp', name: 'Mushroom', width: 23, height: 21 },
+  { file: 'omok-piece-octopus.webp', name: 'Octopus', width: 23, height: 22 },
+  { file: 'omok-piece-panda-teddy.webp', name: 'Panda teddy', width: 23, height: 22 },
+  { file: 'omok-piece-pig.webp', name: 'Pig', width: 22, height: 22 },
+  { file: 'omok-piece-pink-teddy.webp', name: 'Pink teddy', width: 23, height: 22 },
+  { file: 'omok-piece-slime.webp', name: 'Slime', width: 23, height: 22 },
+  { file: 'omok-piece-trixter.webp', name: 'Trixter', width: 23, height: 22 },
 ] as const
 
 const PEGBOARD_ANCHORS: PegboardAnchor[] = [
-  'center',
   'top-left',
+  'top-center',
   'top-right',
+  'middle-left',
+  'center',
+  'middle-right',
   'bottom-left',
+  'bottom-center',
   'bottom-right',
 ]
+
+const PEGBOARD_ANCHOR_ICONS = {
+  'top-left': ArrowUpLeft,
+  'top-center': ArrowUp,
+  'top-right': ArrowUpRight,
+  'middle-left': ArrowLeft,
+  center: CircleDot,
+  'middle-right': ArrowRight,
+  'bottom-left': ArrowDownLeft,
+  'bottom-center': ArrowDown,
+  'bottom-right': ArrowDownRight,
+} satisfies Record<PegboardAnchor, typeof ArrowUp>
 
 type BrandPaletteId = Exclude<BeadPaletteId, 'mixed'>
 
 type BeadPatternGeneratorProps = {
   exampleAssetBasePath?: string
+}
+
+type CropDraft = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+type CropResizeHandle =
+  | 'top-left'
+  | 'top'
+  | 'top-right'
+  | 'right'
+  | 'bottom-right'
+  | 'bottom'
+  | 'bottom-left'
+  | 'left'
+
+type CropDrag = {
+  mode: 'draw' | 'move' | 'resize'
+  handle?: CropResizeHandle
+  startX: number
+  startY: number
+  startCrop: CropDraft
+}
+
+const CROP_RESIZE_HANDLES: Array<{
+  id: CropResizeHandle
+  className: string
+}> = [
+  { id: 'top-left', className: 'left-0 top-0 -translate-x-1/2 -translate-y-1/2' },
+  { id: 'top', className: 'left-1/2 top-0 -translate-x-1/2 -translate-y-1/2' },
+  { id: 'top-right', className: 'right-0 top-0 translate-x-1/2 -translate-y-1/2' },
+  { id: 'right', className: 'right-0 top-1/2 translate-x-1/2 -translate-y-1/2' },
+  { id: 'bottom-right', className: 'bottom-0 right-0 translate-x-1/2 translate-y-1/2' },
+  { id: 'bottom', className: 'bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2' },
+  { id: 'bottom-left', className: 'bottom-0 left-0 -translate-x-1/2 translate-y-1/2' },
+  { id: 'left', className: 'left-0 top-1/2 -translate-x-1/2 -translate-y-1/2' },
+]
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value))
+}
+
+/** Visible default crop (not full bleed) so the box can be moved and resized by dragging. */
+function defaultCropDraft(width: number, height: number): CropDraft {
+  const inset = 0.08
+  const x = Math.round(width * inset)
+  const y = Math.round(height * inset)
+  return {
+    x,
+    y,
+    width: Math.max(1, Math.round(width * (1 - inset * 2))),
+    height: Math.max(1, Math.round(height * (1 - inset * 2))),
+  }
+}
+
+function cropFromResizeHandle(
+  startCrop: CropDraft,
+  handle: CropResizeHandle,
+  point: { x: number; y: number },
+  imageWidth: number,
+  imageHeight: number,
+): CropDraft {
+  const left = startCrop.x
+  const top = startCrop.y
+  const right = startCrop.x + startCrop.width
+  const bottom = startCrop.y + startCrop.height
+  let nextLeft = left
+  let nextTop = top
+  let nextRight = right
+  let nextBottom = bottom
+
+  if (handle.includes('left')) nextLeft = clamp(point.x, 0, right - 1)
+  if (handle.includes('right')) nextRight = clamp(point.x, left + 1, imageWidth)
+  if (handle.includes('top')) nextTop = clamp(point.y, 0, bottom - 1)
+  if (handle.includes('bottom')) nextBottom = clamp(point.y, top + 1, imageHeight)
+
+  return {
+    x: nextLeft,
+    y: nextTop,
+    width: Math.max(1, nextRight - nextLeft),
+    height: Math.max(1, nextBottom - nextTop),
+  }
 }
 
 function exampleAssetPath(basePath: string, file: string): string {
@@ -54,9 +174,12 @@ export function BeadPatternGenerator({
 }: BeadPatternGeneratorProps = {}) {
   const ws = usePatternWorkspace()
   const inputRef = useRef<HTMLInputElement>(null)
+  const cropImageRef = useRef<HTMLImageElement>(null)
   const [loadingExample, setLoadingExample] = useState<string | null>(null)
   const [targetWidthDraft, setTargetWidthDraft] = useState<number | null>(null)
   const [paletteLimitDraft, setPaletteLimitDraft] = useState<number | null>(null)
+  const [cropDraft, setCropDraft] = useState<CropDraft | null>(null)
+  const [cropDrag, setCropDrag] = useState<CropDrag | null>(null)
 
   const onPickExample = useCallback(
     async (example: (typeof EXAMPLE_PATTERNS)[number]) => {
@@ -93,9 +216,9 @@ export function BeadPatternGenerator({
   const brandPalettes = BEAD_PALETTES.filter(
     (palette) => palette.id !== 'mixed',
   ) as Array<(typeof BEAD_PALETTES)[number] & { id: BrandPaletteId }>
-  const selectedBrandIds =
+  const selectedBrandIds: BrandPaletteId[] =
     ws.settings.paletteId === 'mixed'
-      ? ws.settings.mixedBrandIds
+      ? (ws.settings.mixedBrandIds as BrandPaletteId[])
       : ([ws.settings.paletteId] as BrandPaletteId[])
   const targetWidthSliderValue = targetWidthDraft ?? ws.targetCanvasWidthValue
   const targetWidthDisplayValue =
@@ -136,6 +259,172 @@ export function BeadPatternGenerator({
     setPaletteLimitDraft(null)
     updateProcessingSettings((s) => ({ ...s, paletteLimit: next }))
   }
+
+  function openCropDialog(): void {
+    if (!ws.file || !ws.fileDimensions) return
+    if (!confirmRegenerateAfterEdits()) return
+    setCropDraft(defaultCropDraft(ws.fileDimensions.width, ws.fileDimensions.height))
+  }
+
+  async function applyCrop(): Promise<void> {
+    if (!ws.file || !ws.fileDimensions || !cropDraft) return
+    const sourceWidth = ws.fileDimensions.width
+    const sourceHeight = ws.fileDimensions.height
+    const x = Math.max(0, Math.min(sourceWidth - 1, Math.floor(cropDraft.x)))
+    const y = Math.max(0, Math.min(sourceHeight - 1, Math.floor(cropDraft.y)))
+    const width = Math.max(1, Math.min(sourceWidth - x, Math.floor(cropDraft.width)))
+    const height = Math.max(1, Math.min(sourceHeight - y, Math.floor(cropDraft.height)))
+    const bitmap = await createImageBitmap(ws.file)
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.imageSmoothingEnabled = false
+    ctx.drawImage(bitmap, x, y, width, height, 0, 0, width, height)
+    bitmap.close()
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
+    if (!blob) return
+    const croppedName = ws.file.name.replace(/\.[^.]+$/, '') + '-crop.png'
+    setCropDraft(null)
+    await ws.onPickFile(new File([blob], croppedName, { type: 'image/png' }))
+  }
+
+  function cropPointFromEvent(
+    event: ReactPointerEvent<HTMLElement> | PointerEvent,
+  ): { x: number; y: number } | null {
+    if (!ws.fileDimensions) return null
+    const image = cropImageRef.current
+    if (!image) return null
+    const rect = image.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) return null
+    return {
+      x: clamp(
+        ((event.clientX - rect.left) / rect.width) * ws.fileDimensions.width,
+        0,
+        ws.fileDimensions.width,
+      ),
+      y: clamp(
+        ((event.clientY - rect.top) / rect.height) * ws.fileDimensions.height,
+        0,
+        ws.fileDimensions.height,
+      ),
+    }
+  }
+
+  function cropResizeHandleFromPoint(point: { x: number; y: number }): CropResizeHandle | null {
+    if (!cropDraft || !ws.fileDimensions) return null
+    const image = cropImageRef.current
+    if (!image) return null
+    const rect = image.getBoundingClientRect()
+    const tolerancePx = 14
+    const toleranceX = (tolerancePx / rect.width) * ws.fileDimensions.width
+    const toleranceY = (tolerancePx / rect.height) * ws.fileDimensions.height
+    const left = cropDraft.x
+    const right = cropDraft.x + cropDraft.width
+    const top = cropDraft.y
+    const bottom = cropDraft.y + cropDraft.height
+    const nearLeft = Math.abs(point.x - left) <= toleranceX
+    const nearRight = Math.abs(point.x - right) <= toleranceX
+    const nearTop = Math.abs(point.y - top) <= toleranceY
+    const nearBottom = Math.abs(point.y - bottom) <= toleranceY
+    const withinX = point.x >= left - toleranceX && point.x <= right + toleranceX
+    const withinY = point.y >= top - toleranceY && point.y <= bottom + toleranceY
+
+    if (nearLeft && nearTop) return 'top-left'
+    if (nearRight && nearTop) return 'top-right'
+    if (nearRight && nearBottom) return 'bottom-right'
+    if (nearLeft && nearBottom) return 'bottom-left'
+    if (nearTop && withinX) return 'top'
+    if (nearRight && withinY) return 'right'
+    if (nearBottom && withinX) return 'bottom'
+    if (nearLeft && withinY) return 'left'
+    return null
+  }
+
+  function onCropPointerDown(event: ReactPointerEvent<HTMLDivElement>): void {
+    if (!cropDraft || !ws.fileDimensions) return
+    const point = cropPointFromEvent(event)
+    if (!point) return
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    const handle = cropResizeHandleFromPoint(point)
+    if (handle) {
+      setCropDrag({ mode: 'resize', handle, startX: point.x, startY: point.y, startCrop: cropDraft })
+      return
+    }
+    const { width: imgW, height: imgH } = ws.fileDimensions
+    const coversFullImage =
+      cropDraft.x <= 0 &&
+      cropDraft.y <= 0 &&
+      cropDraft.width >= imgW - 1 &&
+      cropDraft.height >= imgH - 1
+    const inside =
+      point.x >= cropDraft.x &&
+      point.x <= cropDraft.x + cropDraft.width &&
+      point.y >= cropDraft.y &&
+      point.y <= cropDraft.y + cropDraft.height
+    if (inside && !coversFullImage) {
+      setCropDrag({ mode: 'move', startX: point.x, startY: point.y, startCrop: cropDraft })
+      return
+    }
+    const next = { x: point.x, y: point.y, width: 1, height: 1 }
+    setCropDraft(next)
+    setCropDrag({ mode: 'draw', startX: point.x, startY: point.y, startCrop: next })
+  }
+
+  useEffect(() => {
+    if (!cropDrag || !ws.fileDimensions) return
+
+    const onPointerMove = (event: PointerEvent) => {
+      const point = cropPointFromEvent(event)
+      if (!point) return
+      if (cropDrag.mode === 'move') {
+        const dx = point.x - cropDrag.startX
+        const dy = point.y - cropDrag.startY
+        setCropDraft({
+          ...cropDrag.startCrop,
+          x: clamp(cropDrag.startCrop.x + dx, 0, ws.fileDimensions!.width - cropDrag.startCrop.width),
+          y: clamp(cropDrag.startCrop.y + dy, 0, ws.fileDimensions!.height - cropDrag.startCrop.height),
+        })
+        return
+      }
+
+      if (cropDrag.mode === 'resize' && cropDrag.handle) {
+        setCropDraft(
+          cropFromResizeHandle(
+            cropDrag.startCrop,
+            cropDrag.handle,
+            point,
+            ws.fileDimensions!.width,
+            ws.fileDimensions!.height,
+          ),
+        )
+        return
+      }
+
+      const x = Math.min(cropDrag.startX, point.x)
+      const y = Math.min(cropDrag.startY, point.y)
+      setCropDraft({
+        x,
+        y,
+        width: Math.max(1, Math.abs(point.x - cropDrag.startX)),
+        height: Math.max(1, Math.abs(point.y - cropDrag.startY)),
+      })
+    }
+
+    const onPointerUp = () => setCropDrag(null)
+    window.addEventListener('pointermove', onPointerMove)
+    window.addEventListener('pointerup', onPointerUp, { once: true })
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup', onPointerUp)
+    }
+  }, [cropDrag, ws.fileDimensions])
+
+  useEffect(() => {
+    setTargetWidthDraft(null)
+  }, [ws.file?.name, ws.file?.lastModified, ws.file?.size])
 
   useEffect(() => {
     if (!ws.settings.targetCanvasWidth) return
@@ -237,7 +526,7 @@ export function BeadPatternGenerator({
         disabled={!ws.file}
         aria-busy={ws.loading}
       >
-        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(180px,240px)_minmax(180px,240px)]">
+        <div className="grid gap-4 md:grid-cols-2">
           <label className="flex flex-col gap-1.5">
             <div className="flex items-center justify-between">
               <span className="font-medium">{ws.t('targetWidthLabel')}</span>
@@ -265,58 +554,60 @@ export function BeadPatternGenerator({
             <span className="text-xs text-[var(--muted)]">{ws.t('targetWidthHint')}</span>
           </label>
 
-          <label className="flex flex-col gap-1.5">
-            <span className="font-medium">{ws.t('pixelBlockLabel')}</span>
-            <select
-              value={
-                ws.settings.targetCanvasWidth
-                  ? 'auto'
-                  : ws.settings.pixelBlockSize === 'auto'
+          <div className="flex flex-col gap-3">
+            <label className="flex flex-col gap-1.5">
+              <span className="font-medium">{ws.t('pixelBlockLabel')}</span>
+              <select
+                value={
+                  ws.settings.targetCanvasWidth
                     ? 'auto'
-                    : String(ws.settings.pixelBlockSize)
-              }
-              disabled={Boolean(ws.settings.targetCanvasWidth)}
-              onChange={(e) => {
-                const v = e.target.value
-                updateProcessingSettings((s) => ({
-                  ...s,
-                  pixelBlockSize: v === 'auto' ? 'auto' : Number(v),
-                }))
-              }}
-              className="rounded-md border border-black/15 bg-white px-3 py-2 font-mono text-sm disabled:opacity-50"
-            >
-              <option value="auto">{ws.t('pixelBlockAuto')}</option>
-              <option value="1">{ws.t('pixelBlock1')}</option>
-              <option value="2">2×2</option>
-              <option value="3">3×3</option>
-              <option value="4">4×4</option>
-            </select>
-          </label>
-
-          <div className="flex flex-col justify-end gap-2">
-            <label className="flex cursor-pointer items-start gap-2">
-              <input
-                type="checkbox"
-                checked={ws.settings.trimTransparent}
-                onChange={(e) =>
-                  updateProcessingSettings((s) => ({ ...s, trimTransparent: e.target.checked }))
+                    : ws.settings.pixelBlockSize === 'auto'
+                      ? 'auto'
+                      : String(ws.settings.pixelBlockSize)
                 }
-                className="mt-0.5 accent-[var(--accent)]"
-              />
-              <span className="font-medium">{ws.t('trimTransparent')}</span>
+                disabled={Boolean(ws.settings.targetCanvasWidth)}
+                onChange={(e) => {
+                  const v = e.target.value
+                  updateProcessingSettings((s) => ({
+                    ...s,
+                    pixelBlockSize: v === 'auto' ? 'auto' : Number(v),
+                  }))
+                }}
+                className="rounded-md border border-black/15 bg-white px-3 py-2 font-mono text-sm disabled:opacity-50"
+              >
+                <option value="auto">{ws.t('pixelBlockAuto')}</option>
+                <option value="1">{ws.t('pixelBlock1')}</option>
+                <option value="2">2×2</option>
+                <option value="3">3×3</option>
+                <option value="4">4×4</option>
+              </select>
             </label>
 
-            <label className="flex cursor-pointer items-start gap-2">
-              <input
-                type="checkbox"
-                checked={ws.settings.removeBackground}
-                onChange={(e) =>
-                  updateProcessingSettings((s) => ({ ...s, removeBackground: e.target.checked }))
-                }
-                className="mt-0.5 accent-[var(--accent)]"
-              />
-              <span className="font-medium">{ws.t('removeBg')}</span>
-            </label>
+            <div className="grid gap-2 rounded-lg border border-black/10 bg-[#fbf7fb] p-3">
+              <label className="flex cursor-pointer items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={ws.settings.trimTransparent}
+                  onChange={(e) =>
+                    updateProcessingSettings((s) => ({ ...s, trimTransparent: e.target.checked }))
+                  }
+                  className="mt-0.5 accent-[var(--accent)]"
+                />
+                <span className="font-medium">{ws.t('trimTransparent')}</span>
+              </label>
+
+              <label className="flex cursor-pointer items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={ws.settings.removeBackground}
+                  onChange={(e) =>
+                    updateProcessingSettings((s) => ({ ...s, removeBackground: e.target.checked }))
+                  }
+                  className="mt-0.5 accent-[var(--accent)]"
+                />
+                <span className="font-medium">{ws.t('removeBg')}</span>
+              </label>
+            </div>
           </div>
         </div>
 
@@ -361,6 +652,9 @@ export function BeadPatternGenerator({
                 </option>
               ))}
             </select>
+            <span className="text-xs text-[var(--muted)]">
+              {ws.t(`matchMethodHint.${ws.settings.matchMethod}`)}
+            </span>
           </label>
         </div>
       </fieldset>
@@ -370,8 +664,8 @@ export function BeadPatternGenerator({
 
   const pegboardSettingsPanel = (
     <div className="rounded-lg border border-black/10 bg-[#fbf7fb] p-3 text-sm">
-      <fieldset className="flex flex-col gap-3" disabled={!ws.file} aria-busy={ws.loading}>
-        <div className="flex flex-wrap items-start justify-between gap-3">
+      <fieldset className="grid items-start gap-4 sm:grid-cols-[minmax(0,1fr)_auto]" disabled={!ws.file} aria-busy={ws.loading}>
+        <div className="flex min-w-0 flex-col gap-3">
           <label className="flex min-w-0 cursor-pointer items-start gap-2">
             <input
               type="checkbox"
@@ -395,14 +689,8 @@ export function BeadPatternGenerator({
               </span>
             </span>
           </label>
-          {ws.boardLayoutLabel && (
-            <span className="rounded-full bg-white px-2 py-1 text-xs text-[var(--muted)]">
-              {ws.t('pegboardLayout', { layout: ws.boardLayoutLabel })}
-            </span>
-          )}
-        </div>
-        <div className="grid gap-2 sm:grid-cols-2">
-          <label className="flex flex-col gap-1 text-xs text-[var(--muted)]">
+
+          <label className="flex max-w-48 flex-col gap-1 text-xs text-[var(--muted)]">
             <span>{ws.t('pegboardSizeLabel')}</span>
             <input
               type="number"
@@ -414,29 +702,47 @@ export function BeadPatternGenerator({
                 const size = Math.max(1, Math.min(200, Number(e.target.value) || 52))
                 updatePegboardSettings((s) => ({ ...s, pegboardSize: size }))
               }}
-              className="w-full rounded-md border border-black/15 bg-white px-2 py-1 font-mono text-xs text-[var(--foreground)] disabled:opacity-50"
+              className="w-full rounded-md border border-black/15 bg-white px-2 py-1.5 font-mono text-xs text-[var(--foreground)] disabled:opacity-50"
             />
           </label>
-          <label className="flex flex-col gap-1 text-xs text-[var(--muted)]">
-            <span>{ws.t('pegboardAnchorLabel')}</span>
-            <select
-              value={ws.settings.pegboardAnchor ?? 'center'}
-              disabled={!ws.settings.pegboardSize}
-              onChange={(e) =>
-                updatePegboardSettings((s) => ({
-                  ...s,
-                  pegboardAnchor: e.target.value as PegboardAnchor,
-                }))
-              }
-              className="w-full rounded-md border border-black/15 bg-white px-2 py-1 text-xs text-[var(--foreground)] disabled:opacity-50"
-            >
-              {PEGBOARD_ANCHORS.map((anchor) => (
-                <option key={anchor} value={anchor}>
-                  {ws.t(`pegboardAnchor.${anchor}`)}
-                </option>
-              ))}
-            </select>
-          </label>
+          {ws.boardLayoutLabel && (
+            <span className="w-fit rounded-full bg-white px-2 py-1 text-xs text-[var(--muted)]">
+              {ws.t('pegboardLayout', { layout: ws.boardLayoutLabel })}
+            </span>
+          )}
+        </div>
+
+        <div className="flex flex-col items-start gap-2 text-xs text-[var(--muted)] sm:items-end">
+          <div className="grid w-fit grid-cols-3 gap-1 rounded-lg border border-black/10 bg-white/70 p-1 shadow-inner">
+              {PEGBOARD_ANCHORS.map((anchor) => {
+                const active = (ws.settings.pegboardAnchor ?? 'top-left') === anchor
+                const Icon = PEGBOARD_ANCHOR_ICONS[anchor]
+                return (
+                  <button
+                    key={anchor}
+                    type="button"
+                    disabled={!ws.settings.pegboardSize}
+                    onClick={() =>
+                      updatePegboardSettings((s) => ({
+                        ...s,
+                        pegboardAnchor: anchor,
+                      }))
+                    }
+                    className={cn(
+                      'flex size-7 items-center justify-center rounded-md border text-[10px] transition-colors disabled:opacity-50',
+                      active
+                        ? 'border-[#34205f] bg-[#34205f] text-white shadow-sm'
+                        : 'border-black/10 bg-white text-[var(--muted)] hover:border-[var(--accent)]/40 hover:bg-[var(--accent)]/10 hover:text-[#34205f]',
+                    )}
+                    aria-label={ws.t(`pegboardAnchor.${anchor}`)}
+                    title={ws.t(`pegboardAnchor.${anchor}`)}
+                  >
+                    <Icon className="size-3.5" strokeWidth={2.4} />
+                  </button>
+                )
+              })}
+          </div>
+          <span className="max-w-40 leading-snug sm:text-right">{ws.t('pegboardAnchorHint')}</span>
         </div>
       </fieldset>
     </div>
@@ -529,13 +835,22 @@ export function BeadPatternGenerator({
                     height: ws.fileDimensions?.height ?? '?',
                   })}
                 </p>
-                <button
-                  type="button"
-                  onClick={() => inputRef.current?.click()}
-                  className="text-sm text-[var(--accent)] hover:underline"
-                >
-                  {ws.t('replaceImage')}
-                </button>
+                <div className="flex flex-wrap justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => inputRef.current?.click()}
+                    className="rounded-md border border-black/15 bg-white px-3 py-1.5 text-sm font-medium text-[var(--foreground)] hover:bg-black/[0.04]"
+                  >
+                    {ws.t('replaceImage')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={openCropDialog}
+                    className="rounded-md border border-[var(--accent)]/30 bg-[var(--accent)]/10 px-3 py-1.5 text-sm font-medium text-[var(--accent)] hover:bg-[var(--accent)]/15"
+                  >
+                    {ws.t('cropImage')}
+                  </button>
+                </div>
               </div>
             )}
 
@@ -559,12 +874,26 @@ export function BeadPatternGenerator({
                     className="group flex min-w-0 flex-col items-center gap-0.5 rounded-md border border-black/10 bg-white/70 p-0.5 transition-colors hover:border-[var(--accent)] hover:bg-white disabled:cursor-wait disabled:opacity-70"
                     title={example.name}
                   >
-                    <span className="flex size-9 items-center justify-center overflow-hidden rounded bg-white/60 p-1">
+                    <span
+                      className="flex items-center justify-center overflow-hidden rounded bg-white/60 p-1"
+                      style={{
+                        width: example.width * EXAMPLE_THUMB_SCALE + 8,
+                        height: example.height * EXAMPLE_THUMB_SCALE + 8,
+                        minWidth: example.width * EXAMPLE_THUMB_SCALE + 8,
+                        minHeight: example.height * EXAMPLE_THUMB_SCALE + 8,
+                      }}
+                    >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={src}
                         alt=""
-                        className="max-h-full max-w-full object-contain transition-transform group-hover:scale-105"
+                        width={example.width}
+                        height={example.height}
+                        className="block shrink-0 [image-rendering:pixelated] [image-rendering:crisp-edges]"
+                        style={{
+                          width: example.width * EXAMPLE_THUMB_SCALE,
+                          height: example.height * EXAMPLE_THUMB_SCALE,
+                        }}
                         loading="lazy"
                       />
                     </span>
@@ -717,7 +1046,7 @@ export function BeadPatternGenerator({
                           type="checkbox"
                           checked={checked}
                           onChange={(e) => {
-                            const next = new Set(selectedBrandIds)
+                            const next = new Set<BrandPaletteId>(selectedBrandIds)
                             if (e.target.checked) next.add(brand.id)
                             else next.delete(brand.id)
                             if (updateSelectedBrands([...next])) {
@@ -821,6 +1150,7 @@ export function BeadPatternGenerator({
                   : null
               }
               colorOverrides={ws.editSnapshot.colorOverrides}
+              hasEdits={ws.hasStep4Edits}
               onPushOverrides={ws.pushEdit}
               onUndo={ws.undoEdits}
               onResetEdits={ws.resetEdits}
@@ -838,6 +1168,106 @@ export function BeadPatternGenerator({
           )}
         </div>
       </div>
+
+      {cropDraft && ws.fileDimensions && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal
+          aria-labelledby="crop-image-title"
+          onClick={() => setCropDraft(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex flex-col gap-1">
+              <h2 id="crop-image-title" className="text-lg font-semibold text-[#34205f]">
+                {ws.t('cropImageTitle')}
+              </h2>
+              <p className="text-sm text-[var(--muted)]">
+                {ws.t('cropImageHint', {
+                  width: ws.fileDimensions.width,
+                  height: ws.fileDimensions.height,
+                })}
+              </p>
+            </div>
+            <div
+              className="mt-4 flex max-h-[60vh] justify-center overflow-auto rounded-xl border border-black/10 bg-black/[0.03]"
+            >
+              <div
+                className="relative inline-block max-w-full touch-none select-none cursor-crosshair"
+                onPointerDown={onCropPointerDown}
+              >
+                {ws.previewUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    ref={cropImageRef}
+                    src={ws.previewUrl}
+                    alt=""
+                    draggable={false}
+                    className="block max-h-[60vh] max-w-full object-contain"
+                  />
+                )}
+                <div className="pointer-events-none absolute inset-0">
+                  <div
+                    className="absolute box-border border-2 border-white bg-white/10 shadow-[0_0_0_9999px_rgba(0,0,0,0.45)] outline outline-1 outline-black/50"
+                    style={{
+                      left: `${(cropDraft.x / ws.fileDimensions.width) * 100}%`,
+                      top: `${(cropDraft.y / ws.fileDimensions.height) * 100}%`,
+                      width: `${(cropDraft.width / ws.fileDimensions.width) * 100}%`,
+                      height: `${(cropDraft.height / ws.fileDimensions.height) * 100}%`,
+                    }}
+                  >
+                    {CROP_RESIZE_HANDLES.map((handle) => (
+                      <span
+                        key={handle.id}
+                        className={`absolute size-3 rounded-full border border-[#34205f] bg-white shadow ${handle.className}`}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-[var(--muted)]">
+              {ws.t('cropSelection', {
+                width: Math.round(cropDraft.width),
+                height: Math.round(cropDraft.height),
+              })}
+            </p>
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  setCropDraft({
+                    x: 0,
+                    y: 0,
+                    width: ws.fileDimensions!.width,
+                    height: ws.fileDimensions!.height,
+                  })
+                }
+                className="rounded-md border border-black/15 px-3 py-2 text-sm hover:bg-black/[0.04]"
+              >
+                {ws.t('cropFullImage')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setCropDraft(null)}
+                className="rounded-md border border-black/15 px-3 py-2 text-sm hover:bg-black/[0.04]"
+              >
+                {ws.t('replaceCancel')}
+              </button>
+              <button
+                type="button"
+                onClick={() => void applyCrop()}
+                className="rounded-md bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+              >
+                {ws.t('applyCrop')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

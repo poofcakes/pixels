@@ -14,7 +14,7 @@ import {
   Undo2,
 } from 'lucide-react'
 import { useTranslations } from 'next-intl'
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { BeadCountList, type BeadStatRow } from '@/components/BeadCountList'
 import { ColorReplacementPicker } from '@/components/ColorReplacementPicker'
@@ -26,7 +26,11 @@ import { PatternPreviewGrid } from '@/components/PatternPreviewGrid'
 import type { StudioTool } from '@/components/patternStudioTypes'
 import type { BeadPattern, PatternGridDisplay } from '@/lib/beadPattern'
 import type { BeadPalette } from '@/lib/beadPalettes'
-import { exportCellPxForPattern, renderPatternExportToCanvas } from '@/lib/beadPattern'
+import {
+  MIN_READABLE_LABEL_CELL_PX,
+  exportCellPxForPattern,
+  renderPatternExportToCanvas,
+} from '@/lib/beadPattern'
 import { canvasToPdfBlob } from '@/lib/patternPdf'
 import { replaceColorOverrides } from '@/lib/patternEdits'
 import { shouldUseCanvasPreview } from '@/lib/patternPerformance'
@@ -60,6 +64,7 @@ type PatternStudioProps = {
   onHover: (cell: { x: number; y: number } | null) => void
   hoveredCode: string | null
   colorOverrides: Record<string, string>
+  hasEdits: boolean
   onPushOverrides: (overrides: Record<string, string>) => void
   onUndo: () => void
   onResetEdits: () => void
@@ -84,6 +89,13 @@ function exportFileBaseName(name: string): string {
       .replace(/^-+|-+$/g, '') || 'pattern'
 
   return baseName.endsWith('-poofpixels') ? baseName : `${baseName}-poofpixels`
+}
+
+const BEAD_PITCH_CM = 0.26
+
+function formatRealSizeCm(width: number, height: number): string {
+  const format = (beads: number) => (beads * BEAD_PITCH_CM).toFixed(1)
+  return `${format(width)}×${format(height)} cm`
 }
 
 export function PatternStudio({
@@ -113,6 +125,7 @@ export function PatternStudio({
   onHover,
   hoveredCode,
   colorOverrides,
+  hasEdits,
   onPushOverrides,
   onUndo,
   onResetEdits,
@@ -152,14 +165,14 @@ export function PatternStudio({
 
     const updateAutoZoom = () => {
       const contentWidth = Math.max(1, container.clientWidth - 32)
-      let nextCellPx = 1
+      let nextCellPx = showCodes ? MIN_READABLE_LABEL_CELL_PX : 1
       for (let px = 48; px >= 1; px--) {
         const rulerPx = rulerBandSize(px)
         const gridGapsPx = Math.max(0, pattern.width - 1)
-        const rowRulerGapPx = 1
-        const renderedWidth = rulerPx + rowRulerGapPx + pattern.width * px + gridGapsPx
+        const rulerGapsPx = 2
+        const renderedWidth = rulerPx * 2 + rulerGapsPx + pattern.width * px + gridGapsPx
         if (renderedWidth <= contentWidth) {
-          nextCellPx = px
+          nextCellPx = showCodes ? Math.max(px, MIN_READABLE_LABEL_CELL_PX) : px
           break
         }
       }
@@ -170,11 +183,15 @@ export function PatternStudio({
     const observer = new ResizeObserver(updateAutoZoom)
     observer.observe(container)
     return () => observer.disconnect()
-  }, [onAutoCellPxChange, pattern.width])
+  }, [onAutoCellPxChange, pattern.height, pattern.width, showCodes])
 
   const replaceHex =
     statRows.find((r) => r.code === replaceCode)?.hex ?? brushHex
   const exportName = exportFileBaseName(projectName)
+  const exportGridDisplay = useMemo(
+    () => ({ ...gridDisplay, useMardColors: true }),
+    [gridDisplay],
+  )
 
   const handleCellAction = useCallback(
     (x: number, y: number) => {
@@ -201,9 +218,14 @@ export function PatternStudio({
     onPaintStrokeEnd()
   }, [onPaintStrokeEnd])
 
+  useEffect(() => {
+    window.addEventListener('pointerup', endPaint)
+    return () => window.removeEventListener('pointerup', endPaint)
+  }, [endPaint])
+
   const downloadPng = useCallback(async () => {
-    const exportCellPx = exportCellPxForPattern(pattern)
-    const canvas = await renderPatternExportToCanvas(pattern, exportCellPx, gridDisplay)
+    const exportCellPx = exportCellPxForPattern(pattern, exportGridDisplay)
+    const canvas = await renderPatternExportToCanvas(pattern, exportCellPx, exportGridDisplay)
     canvas.toBlob((blob) => {
       if (!blob) return
       const a = document.createElement('a')
@@ -212,18 +234,18 @@ export function PatternStudio({
       a.click()
       URL.revokeObjectURL(a.href)
     })
-  }, [pattern, exportName, gridDisplay])
+  }, [pattern, exportName, exportGridDisplay])
 
   const downloadPdf = useCallback(async () => {
-    const exportCellPx = exportCellPxForPattern(pattern)
-    const canvas = await renderPatternExportToCanvas(pattern, exportCellPx, gridDisplay)
+    const exportCellPx = exportCellPxForPattern(pattern, exportGridDisplay)
+    const canvas = await renderPatternExportToCanvas(pattern, exportCellPx, exportGridDisplay)
     const blob = canvasToPdfBlob(canvas)
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
     a.download = `${exportName}.pdf`
     a.click()
     URL.revokeObjectURL(a.href)
-  }, [pattern, exportName, gridDisplay])
+  }, [pattern, exportName, exportGridDisplay])
 
   return (
     <div className="flex min-h-[min(720px,80vh)] min-w-0 flex-col gap-4 rounded-2xl border border-black/10 bg-white/80 p-4 shadow-sm lg:sticky lg:top-4">
@@ -240,16 +262,23 @@ export function PatternStudio({
             </span>
             <p className="text-xs text-[var(--muted)]">{t('step4Warning')}</p>
           </div>
-          <span
-            className={cn(
-              'inline-flex min-h-5 items-center gap-1.5 text-xs text-[var(--muted)] transition-opacity',
-              loading ? 'opacity-100' : 'pointer-events-none opacity-0',
+          <div className="flex min-h-5 flex-wrap items-center justify-end gap-2">
+            {hasEdits && (
+              <span className="rounded-full border border-[var(--accent)]/30 bg-[var(--accent)]/10 px-2 py-0.5 text-xs font-medium text-[#34205f]">
+                {t('editedBadge')}
+              </span>
             )}
-            aria-hidden={!loading}
-          >
-            <Loader2 className="size-3.5 animate-spin" />
-            {t('processing')}
-          </span>
+            <span
+              className={cn(
+                'inline-flex items-center gap-1.5 text-xs text-[var(--muted)] transition-opacity',
+                loading ? 'opacity-100' : 'pointer-events-none opacity-0',
+              )}
+              aria-hidden={!loading}
+            >
+              <Loader2 className="size-3.5 animate-spin" />
+              {t('processing')}
+            </span>
+          </div>
         </div>
 
         <div className="grid min-w-0 items-stretch gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]">
@@ -337,7 +366,7 @@ export function PatternStudio({
 
           <div
             ref={previewContainerRef}
-            className="min-h-0 max-h-[min(65vh,720px)] overflow-auto rounded-xl border border-black/10 bg-[#f5edf4] p-4 [scrollbar-gutter:stable_both-edges]"
+            className="h-[min(65vh,720px)] min-h-0 overflow-auto rounded-xl border border-black/10 bg-[#f5edf4] p-4 [scrollbar-gutter:stable_both-edges]"
             onPointerUp={endPaint}
             onPointerLeave={endPaint}
           >
@@ -358,7 +387,7 @@ export function PatternStudio({
             />
           </div>
 
-          <div className="flex h-full min-h-0 flex-col">
+          <div className="flex h-[min(65vh,720px)] min-h-0 flex-col overflow-hidden rounded-xl border border-black/10 bg-white/80 p-3">
             <BeadCountList
               pattern={pattern}
               rows={statRows}
@@ -379,6 +408,10 @@ export function PatternStudio({
                   colors: pattern.uniqueColors,
                   width: pattern.designWidth ?? pattern.width,
                   height: pattern.designHeight ?? pattern.height,
+                  sizeCm: formatRealSizeCm(
+                    pattern.designWidth ?? pattern.width,
+                    pattern.designHeight ?? pattern.height,
+                  ),
                 })}
               </p>
               <button
@@ -417,12 +450,15 @@ export function PatternStudio({
                 <label className="flex cursor-pointer items-center gap-2">
                   <input
                     type="checkbox"
-                    checked={usePaletteColorsToggle}
-                    onChange={(e) => onUsePaletteColorsChange(e.target.checked)}
+                    checked={!usePaletteColorsToggle}
+                    onChange={(e) => onUsePaletteColorsChange(!e.target.checked)}
                     className="accent-[var(--accent)]"
                   />
-                  {t('usePaletteColors', { palette: palette.label })}
+                  {t('compareOriginalColors')}
                 </label>
+                <p className="-mt-1 text-xs text-[var(--muted)]">
+                  {t('compareOriginalColorsHint')}
+                </p>
                 <label className="flex cursor-pointer items-center gap-2">
                   <input
                     type="checkbox"

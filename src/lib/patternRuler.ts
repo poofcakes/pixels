@@ -9,6 +9,7 @@ export function rulerLabelStep(length: number): number {
 export function shouldShowRulerLabel(index: number, length: number, step: number): boolean {
   if (step <= 1) return true
   if (index === 0 || index === length - 1) return true
+  if (length - (index + 1) < Math.ceil(step / 2)) return false
   return (index + 1) % step === 0
 }
 

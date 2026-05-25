@@ -19,7 +19,7 @@ type BeadCountListProps = {
   selectedCode: string | null
   hoveredCode: string | null
   completedCodes: ReadonlySet<string>
-  onSelectCode: (code: string) => void
+  onSelectCode: (code: string | null) => void
   onReplaceCode: (code: string) => void
   onToggleComplete: (code: string) => void
 }
@@ -77,7 +77,7 @@ export function BeadCountList({
             >
               <button
                 type="button"
-                onClick={() => onSelectCode(row.code)}
+                onClick={() => onSelectCode(isSelected ? null : row.code)}
                 className="flex min-w-0 flex-1 items-center gap-2 text-left"
               >
                 <span

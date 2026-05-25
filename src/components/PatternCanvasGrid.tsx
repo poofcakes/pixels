@@ -111,7 +111,7 @@ export function PatternCanvasGrid({
       const cell = cellAt(e.clientX, e.clientY)
       if (!cell) return
       if (canEditCells) {
-        onPaintStart?.()
+        if (canDragPaint) onPaintStart?.()
         onCellAction?.(cell.x, cell.y)
         return
       }
@@ -127,6 +127,7 @@ export function PatternCanvasGrid({
       pattern.cells,
       pattern.width,
       canEditCells,
+      canDragPaint,
     ],
   )
 
@@ -146,7 +147,7 @@ export function PatternCanvasGrid({
         className="font-mono tabular-nums text-[#6f6280]/70"
         style={{
           display: 'grid',
-          gridTemplateColumns: `${rulerSize}px ${gridW}px`,
+          gridTemplateColumns: `${rulerSize}px ${gridW}px ${rulerSize}px`,
           columnGap: gap,
         }}
         aria-hidden
@@ -160,7 +161,6 @@ export function PatternCanvasGrid({
             style={{
               display: 'grid',
               gridTemplateColumns: `repeat(${pattern.width}, ${cellPx}px)`,
-              columnGap: gap,
             }}
           >
             {Array.from({ length: pattern.width }, (_, x) => (
@@ -177,12 +177,13 @@ export function PatternCanvasGrid({
             ))}
           </div>
         </div>
+        <div style={{ width: rulerSize, height: rulerSize }} />
       </div>
 
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: `${rulerSize}px ${gridW}px`,
+          gridTemplateColumns: `${rulerSize}px ${gridW}px ${rulerSize}px`,
           columnGap: gap,
         }}
       >
@@ -191,7 +192,6 @@ export function PatternCanvasGrid({
           style={{
             display: 'grid',
             gridTemplateRows: `repeat(${pattern.height}, ${cellPx}px)`,
-            rowGap: gap,
           }}
           aria-hidden
         >
@@ -218,6 +218,64 @@ export function PatternCanvasGrid({
           onPointerLeave={() => onHover(null)}
           onPointerDown={onPointerDown}
         />
+        <div
+          className="font-mono tabular-nums text-[#6f6280]/70"
+          style={{
+            display: 'grid',
+            gridTemplateRows: `repeat(${pattern.height}, ${cellPx}px)`,
+          }}
+          aria-hidden
+        >
+          {Array.from({ length: pattern.height }, (_, y) => (
+            <div
+              key={`row-right-${y}`}
+              className={cn(
+                'flex items-center justify-start pl-1',
+                hovered?.y === y && 'font-semibold text-[#34205f]',
+              )}
+              style={{ width: rulerSize, height: cellPx, fontSize: labelSize }}
+            >
+              {shouldShowRulerLabel(y, pattern.height, rowStep) ? y + 1 : null}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div
+        className="font-mono tabular-nums text-[#6f6280]/70"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: `${rulerSize}px ${gridW}px ${rulerSize}px`,
+          columnGap: gap,
+        }}
+        aria-hidden
+      >
+        <div style={{ width: rulerSize, height: rulerSize }} />
+        <div
+          className="flex items-start justify-center"
+          style={{ width: gridW, height: rulerSize, fontSize: labelSize }}
+        >
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: `repeat(${pattern.width}, ${cellPx}px)`,
+            }}
+          >
+            {Array.from({ length: pattern.width }, (_, x) => (
+              <div
+                key={`col-bottom-${x}`}
+                className={cn(
+                  'flex items-start justify-center',
+                  hovered?.x === x && 'font-semibold text-[#34205f]',
+                )}
+                style={{ width: cellPx, height: rulerSize }}
+              >
+                {shouldShowRulerLabel(x, pattern.width, colStep) ? x + 1 : null}
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ width: rulerSize, height: rulerSize }} />
       </div>
     </div>
   )

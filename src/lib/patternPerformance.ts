@@ -1,8 +1,11 @@
 /** Max file-pixel edge length when decoding (reduces memory & CPU). */
 export const MAX_SOURCE_EDGE_PX = 2048
 
-/** Max bead columns/rows after trim + block merge (nearest-neighbour shrink). */
-export const MAX_BEAD_GRID_EDGE = 384
+/** Default generated bead width for larger source images. */
+export const DEFAULT_TARGET_CANVAS_WIDTH = 104
+
+/** Max bead columns/rows after trim + block merge. */
+export const MAX_BEAD_GRID_EDGE = 256
 
 /** Above this cell count, preview uses canvas instead of per-bead DOM nodes. */
 export const DOM_PREVIEW_CELL_LIMIT = 8_000

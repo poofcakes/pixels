@@ -9,6 +9,7 @@ import {
   cellFillColor,
   cellLabel,
   luminanceHexForCell,
+  shouldDrawCellLabel,
   type BeadPattern,
   type PatternGridDisplay,
 } from '@/lib/beadPattern'
@@ -112,7 +113,7 @@ export function PatternPreviewGrid({
         className="font-mono tabular-nums text-[#6f6280]/70"
         style={{
           display: 'grid',
-          gridTemplateColumns: `${rulerSize}px repeat(${pattern.width}, ${cellPx}px)`,
+          gridTemplateColumns: `${rulerSize}px repeat(${pattern.width}, ${cellPx}px) ${rulerSize}px`,
           columnGap: gap,
           rowGap: gap,
         }}
@@ -138,12 +139,13 @@ export function PatternPreviewGrid({
             </div>
           )
         })}
+        <div style={{ width: rulerSize, height: rulerSize }} />
       </div>
 
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: `${rulerSize}px auto`,
+          gridTemplateColumns: `${rulerSize}px auto ${rulerSize}px`,
           columnGap: gap,
         }}
       >
@@ -188,7 +190,9 @@ export function PatternPreviewGrid({
         >
           {pattern.cells.map((cell) => {
             const fill = cellFillColor(cell, usePaletteColors)
-            const codeLabel = cellLabel(cell, gridDisplay.label)
+            const codeLabel = shouldDrawCellLabel(gridDisplay.label, cellPx)
+              ? cellLabel(cell, gridDisplay.label)
+              : null
             const lumHex = luminanceHexForCell(cell, usePaletteColors)
             const isComplete = Boolean(cell.bead && completedCodes.has(cell.bead.code))
             const isDimmedBySelection = Boolean(
@@ -215,7 +219,7 @@ export function PatternPreviewGrid({
                     return
                   }
                   e.preventDefault()
-                  onPaintStart?.()
+                  if (canDragPaint) onPaintStart?.()
                   onCellAction?.(cell.x, cell.y)
                 }}
                 onClick={() => {
@@ -231,10 +235,10 @@ export function PatternPreviewGrid({
                     'bg-[repeating-conic-gradient(#ddd8d2_0%_25%,#e8e4df_0%_50%)] bg-[length:8px_8px]',
                   hovered?.x === cell.x &&
                     hovered?.y === cell.y &&
-                    'z-10 ring-1 ring-inset ring-white',
+                    'z-10 outline outline-1 -outline-offset-1 outline-[#34205f]/45',
                   cell.bead &&
                     selectedCode === cell.bead.code &&
-                    'z-10 ring-2 ring-inset ring-white shadow-[inset_0_0_0_1px_rgba(20,20,20,0.7)]',
+                    'z-10 outline outline-2 -outline-offset-2 outline-[#34205f]/80',
                 )}
                 style={{
                   width: cellPx,
@@ -355,6 +359,68 @@ export function PatternPreviewGrid({
             />
           ))}
         </div>
+        <div
+          className="font-mono tabular-nums text-[#6f6280]/70"
+          style={{
+            display: 'grid',
+            gridTemplateRows: `repeat(${pattern.height}, ${cellPx}px)`,
+            rowGap: gap,
+          }}
+          aria-hidden
+        >
+          {Array.from({ length: pattern.height }, (_, y) => {
+            const active = hovered?.y === y
+            return (
+              <div
+                key={`row-right-${y}`}
+                className={cn(
+                  'flex items-center justify-start pl-1',
+                  active && 'font-semibold text-[#34205f]',
+                )}
+                style={{
+                  width: rulerSize,
+                  height: cellPx,
+                  fontSize: labelSize,
+                }}
+              >
+                {shouldShowRulerLabel(y, pattern.height, rowStep) ? y + 1 : null}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      <div
+        className="font-mono tabular-nums text-[#6f6280]/70"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: `${rulerSize}px repeat(${pattern.width}, ${cellPx}px) ${rulerSize}px`,
+          columnGap: gap,
+          rowGap: gap,
+        }}
+        aria-hidden
+      >
+        <div style={{ width: rulerSize, height: rulerSize }} />
+        {Array.from({ length: pattern.width }, (_, x) => {
+          const active = hovered?.x === x
+          return (
+            <div
+              key={`col-bottom-${x}`}
+              className={cn(
+                'flex items-start justify-center',
+                active && 'font-semibold text-[#34205f]',
+              )}
+              style={{
+                width: cellPx,
+                height: rulerSize,
+                fontSize: labelSize,
+              }}
+            >
+              {shouldShowRulerLabel(x, pattern.width, colStep) ? x + 1 : null}
+            </div>
+          )
+        })}
+        <div style={{ width: rulerSize, height: rulerSize }} />
       </div>
     </div>
   )

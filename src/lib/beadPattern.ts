@@ -79,14 +79,28 @@ export type BeadPatternImportMeta = {
   analysisHeight: number
 }
 
-export type PegboardAnchor = 'center' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+export type PegboardAnchor =
+  | 'top-left'
+  | 'top-center'
+  | 'top-right'
+  | 'middle-left'
+  | 'center'
+  | 'middle-right'
+  | 'bottom-left'
+  | 'bottom-center'
+  | 'bottom-right'
 
 function pegboardOffset(
   available: number,
   axis: 'x' | 'y',
   anchor: PegboardAnchor,
 ): number {
-  if (anchor === 'center') return Math.floor(available / 2)
+  if (
+    (axis === 'x' && (anchor === 'top-center' || anchor === 'center' || anchor === 'bottom-center')) ||
+    (axis === 'y' && (anchor === 'middle-left' || anchor === 'center' || anchor === 'middle-right'))
+  ) {
+    return Math.floor(available / 2)
+  }
   if (axis === 'x' && anchor.endsWith('right')) return available
   if (axis === 'y' && anchor.startsWith('bottom')) return available
   return 0
@@ -95,7 +109,7 @@ function pegboardOffset(
 export function fitPatternToPegboards(
   pattern: BeadPattern,
   boardSize: number,
-  anchor: PegboardAnchor = 'center',
+  anchor: PegboardAnchor = 'top-left',
 ): BeadPattern {
   const size = Math.max(1, Math.floor(boardSize))
   const width = Math.ceil(pattern.width / size) * size
@@ -676,6 +690,10 @@ export async function patternFromImageData(
   const cells: PatternCell[] = new Array(cellCount)
   const counts: Record<string, number> = {}
   let totalBeads = 0
+  let minBeadX = width
+  let minBeadY = height
+  let maxBeadX = -1
+  let maxBeadY = -1
 
   for (let y = 0; y < height; y++) {
     if (y > 0 && y % MATCH_YIELD_ROW_INTERVAL === 0) {
@@ -697,6 +715,10 @@ export async function patternFromImageData(
         bead = matcher.match(r, g, b)
         counts[bead.code] = (counts[bead.code] ?? 0) + 1
         totalBeads++
+        minBeadX = Math.min(minBeadX, x)
+        minBeadY = Math.min(minBeadY, y)
+        maxBeadX = Math.max(maxBeadX, x)
+        maxBeadY = Math.max(maxBeadY, y)
       }
 
       cells[y * width + x] = { x, y, sourceRgb, bead }
@@ -715,8 +737,8 @@ export async function patternFromImageData(
     pixelBlockSize: 1,
     naturalWidth: width,
     naturalHeight: height,
-    designWidth: width,
-    designHeight: height,
+    designWidth: totalBeads > 0 ? maxBeadX - minBeadX + 1 : 0,
+    designHeight: totalBeads > 0 ? maxBeadY - minBeadY + 1 : 0,
     paletteId: options.paletteId,
   }
 }
@@ -872,9 +894,15 @@ export function luminanceHexForCell(
 
 export function beadLabelFontSize(code: string, cellPx: number): number {
   const base = Math.floor(cellPx * 0.42)
-  if (code.length <= 5) return Math.max(6, base)
-  if (code.length <= 10) return Math.max(5, Math.floor(cellPx * 0.32))
-  return Math.max(4, Math.floor(cellPx * 0.22))
+  if (code.length <= 5) return Math.max(4, base)
+  if (code.length <= 10) return Math.max(3, Math.floor(cellPx * 0.32))
+  return Math.max(3, Math.floor(cellPx * 0.22))
+}
+
+export const MIN_READABLE_LABEL_CELL_PX = 10
+
+export function shouldDrawCellLabel(label: PatternGridDisplay['label'], cellPx: number): boolean {
+  return label !== 'none' && cellPx >= MIN_READABLE_LABEL_CELL_PX
 }
 
 export function beadLabelTextColor(lumHex: string): string {
@@ -1008,7 +1036,9 @@ export function drawPatternGrid(
       ctx.fillRect(px, py, cellPx, cellPx)
     }
 
-    const text = isComplete ? null : cellLabel(cell, display.label)
+    const text = !isComplete && shouldDrawCellLabel(display.label, cellPx)
+      ? cellLabel(cell, display.label)
+      : null
     if (text) {
       const lumHex = luminanceHexForCell(cell, usePaletteColors)
       ctx.fillStyle = beadLabelTextColor(lumHex)
@@ -1065,9 +1095,9 @@ export function drawPatternGrid(
   if (hovered) {
     const hx = hovered.x * cellPx
     const hy = hovered.y * cellPx
-    ctx.strokeStyle = '#ffffff'
+    ctx.strokeStyle = 'rgba(52,32,95,0.45)'
     ctx.lineWidth = 1
-    ctx.strokeRect(hx + 1, hy + 1, cellPx - 2, cellPx - 2)
+    ctx.strokeRect(hx + 0.5, hy + 0.5, cellPx - 1, cellPx - 1)
   }
 
   if (selectedCode) {
@@ -1075,11 +1105,8 @@ export function drawPatternGrid(
       if (cell.bead?.code !== selectedCode) continue
       const px = cell.x * cellPx
       const py = cell.y * cellPx
-      ctx.strokeStyle = '#ffffff'
-      ctx.lineWidth = Math.max(1, Math.floor(cellPx * 0.04))
-      ctx.strokeRect(px + 1, py + 1, cellPx - 2, cellPx - 2)
-      ctx.strokeStyle = 'rgba(20,20,20,0.72)'
-      ctx.lineWidth = 1
+      ctx.strokeStyle = 'rgba(52,32,95,0.82)'
+      ctx.lineWidth = 2
       ctx.strokeRect(px + 1, py + 1, cellPx - 2, cellPx - 2)
     }
   }
@@ -1173,9 +1200,9 @@ function drawExportColorBreakdown(
   width: number,
 ): number {
   const titleSize = 30
-  const cardW = 156
-  const cardH = 36
-  const gap = 10
+  const cardW = 118
+  const cardH = 30
+  const gap = 8
   const columns = Math.max(1, Math.floor((width + gap) / (cardW + gap)))
 
   ctx.fillStyle = EXPORT_THEME.deepPurple
@@ -1198,14 +1225,14 @@ function drawExportColorBreakdown(
     ctx.fill()
 
     ctx.fillStyle = textColor
-    ctx.font = '800 17px ui-monospace, SFMono-Regular, Menlo, monospace'
+    ctx.font = '800 14px ui-monospace, SFMono-Regular, Menlo, monospace'
     ctx.textBaseline = 'middle'
     ctx.textAlign = 'left'
-    ctx.fillText(clippedCanvasText(ctx, stat.code, cardW - 68), cardX + 10, cardY + cardH / 2)
+    ctx.fillText(clippedCanvasText(ctx, stat.code, cardW - 56), cardX + 8, cardY + cardH / 2)
 
     ctx.textAlign = 'right'
-    ctx.font = '800 15px ui-monospace, SFMono-Regular, Menlo, monospace'
-    ctx.fillText(String(stat.count), cardX + cardW - 10, cardY + cardH / 2)
+    ctx.font = '800 13px ui-monospace, SFMono-Regular, Menlo, monospace'
+    ctx.fillText(String(stat.count), cardX + cardW - 8, cardY + cardH / 2)
   })
 
   const rows = Math.ceil(stats.length / columns)
@@ -1228,8 +1255,10 @@ function drawExportRulers(
 
   ctx.save()
   ctx.fillStyle = '#F4ECF4'
-  ctx.fillRect(x, y, rulerSize + gridW, rulerSize)
+  ctx.fillRect(x, y, rulerSize * 2 + gridW, rulerSize)
+  ctx.fillRect(x, y + rulerSize + gridH, rulerSize * 2 + gridW, rulerSize)
   ctx.fillRect(x, y + rulerSize, rulerSize, gridH)
+  ctx.fillRect(x + rulerSize + gridW, y + rulerSize, rulerSize, gridH)
 
   ctx.fillStyle = EXPORT_THEME.deepPurple
   ctx.font = `800 ${fontSize}px ui-monospace, SFMono-Regular, Menlo, monospace`
@@ -1238,13 +1267,19 @@ function drawExportRulers(
 
   for (let col = 0; col < pattern.width; col++) {
     if (!shouldShowRulerLabel(col, pattern.width, colStep)) continue
-    ctx.fillText(String(col + 1), x + rulerSize + col * cellPx + cellPx / 2, y + rulerSize / 2)
+    const labelX = x + rulerSize + col * cellPx + cellPx / 2
+    ctx.fillText(String(col + 1), labelX, y + rulerSize / 2)
+    ctx.fillText(String(col + 1), labelX, y + rulerSize + gridH + rulerSize / 2)
   }
 
   ctx.textAlign = 'right'
   for (let row = 0; row < pattern.height; row++) {
     if (!shouldShowRulerLabel(row, pattern.height, rowStep)) continue
-    ctx.fillText(String(row + 1), x + rulerSize - 5, y + rulerSize + row * cellPx + cellPx / 2)
+    const labelY = y + rulerSize + row * cellPx + cellPx / 2
+    ctx.fillText(String(row + 1), x + rulerSize - 5, labelY)
+    ctx.textAlign = 'left'
+    ctx.fillText(String(row + 1), x + rulerSize + gridW + 5, labelY)
+    ctx.textAlign = 'right'
   }
 
   ctx.strokeStyle = 'rgba(52,32,95,0.2)'
@@ -1256,16 +1291,21 @@ function drawExportRulers(
 /** A4 page width in px at 96 DPI (portrait). Preview zoom does not use this. */
 export const EXPORT_A4_WIDTH_PX = 794
 export const EXPORT_SHEET_PADDING_PX = 48
+const EXPORT_DENSITY_SCALE = 3
+const EXPORT_MAX_CANVAS_EDGE_PX = 8192
 
 /** Largest bead size so the pattern grid spans the printable width on an A4 export. */
-export function exportCellPxForPattern(pattern: BeadPattern): number {
+export function exportCellPxForPattern(
+  pattern: BeadPattern,
+  display?: PatternGridDisplay,
+): number {
   const contentWidth = EXPORT_A4_WIDTH_PX - EXPORT_SHEET_PADDING_PX * 2
-  const minCellPx = 4
+  const minCellPx = display?.label === 'none' ? 4 : MIN_READABLE_LABEL_CELL_PX
   const maxCellPx = 72
   let best = minCellPx
 
   for (let cellPx = minCellPx; cellPx <= maxCellPx; cellPx++) {
-    const exportGridW = rulerBandSize(cellPx) + pattern.width * cellPx
+    const exportGridW = rulerBandSize(cellPx) * 2 + pattern.width * cellPx
     if (exportGridW <= contentWidth) best = cellPx
   }
 
@@ -1285,22 +1325,32 @@ export async function renderPatternExportToCanvas(
   const gridW = pattern.width * cellPx
   const gridH = pattern.height * cellPx
   const rulerSize = rulerBandSize(cellPx)
-  const exportGridW = rulerSize + gridW
-  const exportGridH = rulerSize + gridH
-  const sheetW = EXPORT_A4_WIDTH_PX
+  const exportGridW = rulerSize * 2 + gridW
+  const exportGridH = rulerSize * 2 + gridH
+  const sheetW = Math.max(EXPORT_A4_WIDTH_PX, Math.ceil(exportGridW + padding * 2))
   const contentW = sheetW - padding * 2
-  const colorRows = Math.ceil(stats.length / Math.max(1, Math.floor((contentW + 10) / (156 + 10))))
-  const computedBreakdownH = 30 + 18 + colorRows * 36 + Math.max(0, colorRows - 1) * 10
-  const footerH = footerGap + computedBreakdownH + 44
+  const colorRows = Math.ceil(stats.length / Math.max(1, Math.floor((contentW + 8) / (118 + 8))))
+  const computedBreakdownH = 30 + 18 + colorRows * 30 + Math.max(0, colorRows - 1) * 8
+  const footerH = footerGap + computedBreakdownH + 72
+  const logicalCanvasH = headerH + exportGridH + footerH
+  const exportScale = Math.max(
+    1,
+    Math.min(
+      EXPORT_DENSITY_SCALE,
+      EXPORT_MAX_CANVAS_EDGE_PX / Math.max(sheetW, logicalCanvasH),
+    ),
+  )
 
   const canvas = document.createElement('canvas')
-  canvas.width = sheetW
-  canvas.height = headerH + exportGridH + footerH
+  canvas.width = Math.ceil(sheetW * exportScale)
+  canvas.height = Math.ceil(logicalCanvasH * exportScale)
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('Canvas not supported')
+  ctx.imageSmoothingEnabled = false
+  ctx.scale(exportScale, exportScale)
 
   ctx.fillStyle = EXPORT_THEME.background
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.fillRect(0, 0, sheetW, logicalCanvasH)
 
   ctx.fillStyle = EXPORT_THEME.purple
   ctx.fillRect(padding, 18, contentW * 0.64, 5)
@@ -1359,7 +1409,7 @@ export async function renderPatternExportToCanvas(
   ctx.fillText(
     `${pattern.totalBeads.toLocaleString()} total beads`,
     padding,
-    canvas.height - 24,
+    logicalCanvasH - 28,
   )
   ctx.fillStyle = EXPORT_THEME.deepPurple
   ctx.textAlign = 'right'
@@ -1367,7 +1417,7 @@ export async function renderPatternExportToCanvas(
   ctx.fillText(
     'Make your own bead patterns at pixels.poofcakes.com',
     sheetW - padding,
-    canvas.height - 24,
+    logicalCanvasH - 28,
   )
 
   return canvas

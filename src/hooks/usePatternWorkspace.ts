@@ -52,12 +52,21 @@ import {
   type PatternProjectState,
 } from '@/lib/patternProjects'
 import { loadEnabledStock, saveEnabledStock } from '@/lib/beadStockStorage'
-import { MAX_BEAD_GRID_EDGE } from '@/lib/patternPerformance'
+import { DEFAULT_TARGET_CANVAS_WIDTH, MAX_BEAD_GRID_EDGE } from '@/lib/patternPerformance'
 
 type BrandPaletteId = Exclude<BeadPaletteId, 'mixed'>
 
 function fileBaseName(name: string): string {
   return name.replace(/\.[^.]+$/, '') || 'Untitled'
+}
+
+/** Default canvas width for a new upload (null = auto from detected bead grid). */
+function defaultTargetCanvasWidthForFileWidth(fileWidth: number): number | null {
+  return fileWidth > DEFAULT_TARGET_CANVAS_WIDTH ? DEFAULT_TARGET_CANVAS_WIDTH : null
+}
+
+function defaultTargetCanvasWidthForNaturalWidth(naturalWidth: number): number | null {
+  return naturalWidth > DEFAULT_TARGET_CANVAS_WIDTH ? DEFAULT_TARGET_CANVAS_WIDTH : null
 }
 
 async function imageDimensions(file: Blob): Promise<{ width: number; height: number } | null> {
@@ -122,6 +131,7 @@ function mirrorPatternHorizontally(pattern: BeadPattern): Record<string, string 
 }
 
 type ProcessSnapshot = {
+  fileKey: string
   baseSignature: string
   resultWidth: number
   resultHeight: number
@@ -142,8 +152,18 @@ function pegboardPlacement(
   const fittedHeight = Math.ceil(height / size) * size
   const freeX = fittedWidth - width
   const freeY = fittedHeight - height
-  const offsetX = anchor === 'center' ? Math.floor(freeX / 2) : anchor.endsWith('right') ? freeX : 0
-  const offsetY = anchor === 'center' ? Math.floor(freeY / 2) : anchor.startsWith('bottom') ? freeY : 0
+  const offsetX =
+    anchor === 'top-center' || anchor === 'center' || anchor === 'bottom-center'
+      ? Math.floor(freeX / 2)
+      : anchor.endsWith('right')
+        ? freeX
+        : 0
+  const offsetY =
+    anchor === 'middle-left' || anchor === 'center' || anchor === 'middle-right'
+      ? Math.floor(freeY / 2)
+      : anchor.startsWith('bottom')
+        ? freeY
+        : 0
 
   return { width: fittedWidth, height: fittedHeight, offsetX, offsetY }
 }
@@ -195,7 +215,7 @@ function defaultSettings(): PatternProjectSettings {
     paletteLimit: 50,
     targetCanvasWidth: null,
     pegboardSize: null,
-    pegboardAnchor: 'center',
+    pegboardAnchor: 'top-left',
     pixelBlockSize: 'auto',
     matchMethod: 'lab76',
     trimTransparent: true,
@@ -220,6 +240,17 @@ function fileProcessKey(file: File): string {
 function codesProcessKey(codes: ReadonlySet<string> | null): string {
   if (!codes) return ''
   return [...codes].sort(beadCodeCollator.compare).join('|')
+}
+
+function processDisplayDimensions(snapshot: ProcessSnapshot): { width: number; height: number } {
+  if (!snapshot.pegboardSize) {
+    return { width: snapshot.resultWidth, height: snapshot.resultHeight }
+  }
+
+  return {
+    width: Math.ceil(snapshot.resultWidth / snapshot.pegboardSize) * snapshot.pegboardSize,
+    height: Math.ceil(snapshot.resultHeight / snapshot.pegboardSize) * snapshot.pegboardSize,
+  }
 }
 
 function recordsEqual<T extends string | null>(
@@ -280,6 +311,8 @@ export function usePatternWorkspace() {
   const editStrokeHasEditRef = useRef(false)
   const preserveEditsOnProcessRef = useRef(false)
   const autoZoomRef = useRef(true)
+  const pendingTargetCanvasWidthRef = useRef<number | null | undefined>(undefined)
+  const reprocessFileRef = useRef<File | null>(null)
   const lastProcessSnapshotRef = useRef<ProcessSnapshot | null>(null)
   const editSnapshot = editHistory[editHistory.length - 1] ?? {
     colorOverrides: {},
@@ -390,12 +423,14 @@ export function usePatternWorkspace() {
     latestEditSnapshotRef.current = editSnapshot
   }, [editSnapshot])
 
-  const pushEdit = useCallback((next: EditSnapshot) => {
+  const pushEdit = useCallback((next: EditSnapshot, options?: { coalesceStroke?: boolean }) => {
+    const coalesceStroke = options?.coalesceStroke ?? true
     latestEditSnapshotRef.current = next
     setEditHistory((h) => {
-      const replaceStrokeSnapshot = editStrokeActiveRef.current && editStrokeHasEditRef.current
-      if (editStrokeActiveRef.current) editStrokeHasEditRef.current = true
-      if (replaceStrokeSnapshot && h.length > 0) return [...h.slice(0, -1), next]
+      const replaceStrokeSnapshot =
+        coalesceStroke && editStrokeActiveRef.current && editStrokeHasEditRef.current
+      if (coalesceStroke && editStrokeActiveRef.current) editStrokeHasEditRef.current = true
+      if (replaceStrokeSnapshot && h.length > 1) return [...h.slice(0, -1), next]
       return [...h, next]
     })
   }, [])
@@ -433,11 +468,17 @@ export function usePatternWorkspace() {
   const runProcess = useCallback(
     (target: File) => {
       let cancelled = false
+      const resolvedTargetCanvasWidth =
+        pendingTargetCanvasWidthRef.current !== undefined
+          ? pendingTargetCanvasWidthRef.current
+          : targetCanvasWidth
+      pendingTargetCanvasWidthRef.current = undefined
+
       const baseSignature = JSON.stringify({
         file: fileProcessKey(target),
         paletteId,
         paletteLimit,
-        targetCanvasWidth,
+        targetCanvasWidth: resolvedTargetCanvasWidth,
         pixelBlockSize,
         matchMethod,
         trimTransparent,
@@ -467,8 +508,8 @@ export function usePatternWorkspace() {
         paletteId,
         trimTransparent,
         removeBackground,
-        pixelBlockSize: targetCanvasWidth ? 'auto' : pixelBlockSize,
-        targetCanvasWidth,
+        pixelBlockSize: resolvedTargetCanvasWidth ? 'auto' : pixelBlockSize,
+        targetCanvasWidth: resolvedTargetCanvasWidth,
         paletteLimit,
         matchMethod,
         allowedCodes,
@@ -476,18 +517,38 @@ export function usePatternWorkspace() {
         .then((result) => {
           if (!cancelled) {
             const fitted = pegboardSize
-              ? fitPatternToPegboards(result, pegboardSize, pegboardAnchor ?? 'center')
+              ? fitPatternToPegboards(result, pegboardSize, pegboardAnchor ?? 'top-left')
               : result
             const previousProcess = lastProcessSnapshotRef.current
+            const fileKey = fileProcessKey(target)
             const nextProcess: ProcessSnapshot = {
+              fileKey,
               baseSignature,
               resultWidth: result.width,
               resultHeight: result.height,
               pegboardSize,
-              pegboardAnchor: pegboardAnchor ?? 'center',
+              pegboardAnchor: pegboardAnchor ?? 'top-left',
+            }
+            const isNewFile = !previousProcess || previousProcess.fileKey !== fileKey
+            const previousSize = previousProcess ? processDisplayDimensions(previousProcess) : null
+            const nextSize = processDisplayDimensions(nextProcess)
+            if (!previousSize || previousSize.width !== nextSize.width || previousSize.height !== nextSize.height) {
+              autoZoomRef.current = true
             }
             setBasePattern(fitted)
-            setAutoCanvasWidth(result.naturalWidth ?? result.width)
+            const naturalWidth = result.naturalWidth ?? result.width
+            setAutoCanvasWidth(naturalWidth)
+            if (isNewFile) {
+              const desiredTarget = defaultTargetCanvasWidthForNaturalWidth(naturalWidth)
+              setSettings((s) => {
+                if (s.targetCanvasWidth === desiredTarget) return s
+                return { ...s, targetCanvasWidth: desiredTarget, pixelBlockSize: 'auto' }
+              })
+              if (desiredTarget !== resolvedTargetCanvasWidth) {
+                pendingTargetCanvasWidthRef.current = desiredTarget
+                reprocessFileRef.current = target
+              }
+            }
             if (!preserveEditsOnProcessRef.current) {
               if (previousProcess?.baseSignature === baseSignature) {
                 const currentEdits = latestEditSnapshotRef.current
@@ -550,6 +611,13 @@ export function usePatternWorkspace() {
     return runProcess(file)
   }, [file, runProcess])
 
+  useEffect(() => {
+    const pending = reprocessFileRef.current
+    if (!pending) return
+    reprocessFileRef.current = null
+    return runProcess(pending)
+  }, [settings.targetCanvasWidth, runProcess])
+
   const persistImage = useCallback(async (target: File) => {
     const id = imageIdFromFile(target)
     await savePatternImage(id, target, {
@@ -569,7 +637,21 @@ export function usePatternWorkspace() {
       setActiveProjectId(null)
       setProjectName(fileBaseName(next.name))
       setPreviewUrl(URL.createObjectURL(next))
-      setFileDimensions(await imageDimensions(next))
+      const dimensions = await imageDimensions(next)
+      const nextTarget = dimensions
+        ? defaultTargetCanvasWidthForFileWidth(dimensions.width)
+        : null
+      pendingTargetCanvasWidthRef.current = nextTarget
+      setFileDimensions(dimensions)
+      setSettings((s) => ({
+        ...s,
+        targetCanvasWidth: nextTarget,
+        pixelBlockSize: 'auto',
+      }))
+      const emptyEdits = { colorOverrides: {}, cellEdits: {} }
+      latestEditSnapshotRef.current = emptyEdits
+      setEditHistory([emptyEdits])
+      lastProcessSnapshotRef.current = null
       setFile(next)
       await persistImage(next)
     },
@@ -664,6 +746,8 @@ export function usePatternWorkspace() {
       }
 
       if (tool === 'bucket' && brushCode) {
+        editStrokeActiveRef.current = false
+        editStrokeHasEditRef.current = false
         const effective = applyAllPatternEdits(
           basePattern,
           currentSnapshot.colorOverrides,
@@ -674,7 +758,7 @@ export function usePatternWorkspace() {
         for (const fillKey of floodFillCellKeys(effective, x, y)) {
           next.cellEdits[fillKey] = brushCode
         }
-        pushEdit(next)
+        pushEdit(next, { coalesceStroke: false })
         return
       }
 
@@ -879,6 +963,11 @@ export function usePatternWorkspace() {
 
   const outputSizeLabel = useMemo(() => {
     if (!pattern) return null
+    const designWidth = pattern.designWidth ?? pattern.width
+    const designHeight = pattern.designHeight ?? pattern.height
+    if (designWidth !== pattern.width || designHeight !== pattern.height) {
+      return `${pattern.width} × ${pattern.height} canvas · ${designWidth} × ${designHeight} design`
+    }
     return `${pattern.width} × ${pattern.height}`
   }, [pattern])
   const boardLayoutLabel = useMemo(() => {
@@ -910,6 +999,7 @@ export function usePatternWorkspace() {
       !recordsEqual(editSnapshot.cellEdits, activeSavedProject.cellEdits)
     )
   }, [activeSavedProject, editSnapshot])
+  const hasStep4Edits = hasAnyEdits(editSnapshot)
 
   useEffect(() => {
     if (!patternSig || !usedCodesKey) {
@@ -928,6 +1018,7 @@ export function usePatternWorkspace() {
     basePattern,
     pattern,
     editSnapshot,
+    hasStep4Edits,
     hasUnsavedStep4Edits,
     canUndoEdits,
     pushEdit: (overrides: Record<string, string>) =>

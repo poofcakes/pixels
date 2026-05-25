@@ -26,13 +26,14 @@ export function canvasToPdfBlob(canvas: HTMLCanvasElement): Blob {
   const encoder = new TextEncoder()
   const jpegDataUrl = canvas.toDataURL('image/jpeg', 1)
   const jpegBytes = base64ToBytes(jpegDataUrl.split(',')[1] ?? '')
-  const pageWidth = A4_WIDTH_PT
-  const pageHeight = Math.max(
-    A4_HEIGHT_PT,
-    Math.round((canvas.height / canvas.width) * A4_WIDTH_PT),
-  )
-  const drawHeight = Math.round((canvas.height / canvas.width) * pageWidth)
-  const drawY = 0
+  const aspect = canvas.width / canvas.height
+  const a4Aspect = A4_WIDTH_PT / A4_HEIGHT_PT
+  const pageWidth =
+    aspect > a4Aspect ? Math.max(A4_WIDTH_PT, Math.round(aspect * A4_HEIGHT_PT)) : A4_WIDTH_PT
+  const pageHeight =
+    aspect > a4Aspect ? A4_HEIGHT_PT : Math.max(A4_HEIGHT_PT, Math.round((canvas.height / canvas.width) * A4_WIDTH_PT))
+  const drawHeight = pageHeight
+  const drawY = pageHeight - drawHeight
 
   const objects = [
     '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
