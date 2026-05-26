@@ -18,10 +18,7 @@ export function loadPatternPrefs(): BeadPatternPrefs {
     if (!raw) return { ...DEFAULT_PREFS }
     const parsed = JSON.parse(raw) as Partial<BeadPatternPrefs>
     return {
-      usePaletteColors:
-        typeof parsed.usePaletteColors === 'boolean'
-          ? parsed.usePaletteColors
-          : DEFAULT_PREFS.usePaletteColors,
+      usePaletteColors: DEFAULT_PREFS.usePaletteColors,
       restrictToStock:
         typeof parsed.restrictToStock === 'boolean'
           ? parsed.restrictToStock
@@ -34,6 +31,10 @@ export function loadPatternPrefs(): BeadPatternPrefs {
 
 export function savePatternPrefs(partial: Partial<BeadPatternPrefs>): void {
   if (typeof window === 'undefined') return
-  const next = { ...loadPatternPrefs(), ...partial }
+  const next = {
+    ...loadPatternPrefs(),
+    ...partial,
+    usePaletteColors: DEFAULT_PREFS.usePaletteColors,
+  }
   localStorage.setItem(PREFS_KEY, JSON.stringify(next))
 }

@@ -57,7 +57,11 @@ import { DEFAULT_TARGET_CANVAS_WIDTH, MAX_BEAD_GRID_EDGE } from '@/lib/patternPe
 type BrandPaletteId = Exclude<BeadPaletteId, 'mixed'>
 
 function fileBaseName(name: string): string {
-  return name.replace(/\.[^.]+$/, '') || 'Untitled'
+  const base = name.replace(/\.[^.]+$/, '').trim()
+  if (!base) return 'Untitled'
+  // Some tablet pickers return opaque numeric ids like "10000042".
+  if (/^\d{6,}$/.test(base)) return 'Image'
+  return base
 }
 
 /** Default canvas width for a new upload (null = auto from detected bead grid). */
@@ -71,10 +75,29 @@ function defaultTargetCanvasWidthForNaturalWidth(naturalWidth: number): number |
 
 async function imageDimensions(file: Blob): Promise<{ width: number; height: number } | null> {
   try {
-    const bitmap = await createImageBitmap(file)
-    const dimensions = { width: bitmap.width, height: bitmap.height }
-    bitmap.close()
-    return dimensions
+    if (typeof createImageBitmap === 'function') {
+      const bitmap = await createImageBitmap(file)
+      const dimensions = { width: bitmap.width, height: bitmap.height }
+      bitmap.close()
+      return dimensions
+    }
+  } catch {
+    // Fall through to HTMLImageElement decode.
+  }
+
+  try {
+    const url = URL.createObjectURL(file)
+    try {
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const element = new Image()
+        element.onload = () => resolve(element)
+        element.onerror = () => reject(new Error('image decode failed'))
+        element.src = url
+      })
+      return { width: img.naturalWidth, height: img.naturalHeight }
+    } finally {
+      URL.revokeObjectURL(url)
+    }
   } catch {
     return null
   }

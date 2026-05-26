@@ -748,31 +748,63 @@ export async function patternFromImageFile(
   options: PatternFromImageOptions,
 ): Promise<BeadPattern> {
   const alphaThreshold = options.alphaThreshold ?? 128
-  let bitmap = await createImageBitmap(file)
-  const fileWidth = bitmap.width
-  const fileHeight = bitmap.height
-
-  const fileFit = scaleToMaxEdge(fileWidth, fileHeight, MAX_SOURCE_EDGE_PX)
-  if (fileFit.scale !== 1) {
-    const resized = await createImageBitmap(bitmap, {
-      resizeWidth: fileFit.width,
-      resizeHeight: fileFit.height,
-      resizeQuality: 'pixelated',
-    })
-    bitmap.close()
-    bitmap = resized
-  }
-
+  let fileWidth = 0
+  let fileHeight = 0
   const canvas = document.createElement('canvas')
-  canvas.width = bitmap.width
-  canvas.height = bitmap.height
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
   if (!ctx) throw new Error('Canvas not supported')
 
-  ctx.imageSmoothingEnabled = false
-  ctx.clearRect(0, 0, canvas.width, canvas.height)
-  ctx.drawImage(bitmap, 0, 0)
-  bitmap.close()
+  let drawn = false
+  if (typeof createImageBitmap === 'function') {
+    try {
+      let bitmap = await createImageBitmap(file)
+      fileWidth = bitmap.width
+      fileHeight = bitmap.height
+
+      const fileFit = scaleToMaxEdge(fileWidth, fileHeight, MAX_SOURCE_EDGE_PX)
+      if (fileFit.scale !== 1) {
+        const resized = await createImageBitmap(bitmap, {
+          resizeWidth: fileFit.width,
+          resizeHeight: fileFit.height,
+          resizeQuality: 'pixelated',
+        })
+        bitmap.close()
+        bitmap = resized
+      }
+
+      canvas.width = bitmap.width
+      canvas.height = bitmap.height
+      ctx.imageSmoothingEnabled = false
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      ctx.drawImage(bitmap, 0, 0)
+      bitmap.close()
+      drawn = true
+    } catch {
+      drawn = false
+    }
+  }
+
+  if (!drawn) {
+    const url = URL.createObjectURL(file)
+    try {
+      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image()
+        img.onload = () => resolve(img)
+        img.onerror = () => reject(new Error('Image decode failed'))
+        img.src = url
+      })
+      fileWidth = image.naturalWidth
+      fileHeight = image.naturalHeight
+      const fileFit = scaleToMaxEdge(fileWidth, fileHeight, MAX_SOURCE_EDGE_PX)
+      canvas.width = fileFit.width
+      canvas.height = fileFit.height
+      ctx.imageSmoothingEnabled = false
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
+    } finally {
+      URL.revokeObjectURL(url)
+    }
+  }
 
   const sourceWidth = canvas.width
   const sourceHeight = canvas.height
