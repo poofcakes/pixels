@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import { Check } from 'lucide-react'
 
 import {
@@ -28,6 +29,7 @@ import { PatternCanvasGrid } from './PatternCanvasGrid'
 
 type PatternPreviewGridProps = {
   pattern: BeadPattern
+  basePattern?: BeadPattern
   cellPx: number
   gridDisplay: PatternGridDisplay
   usePaletteColors: boolean
@@ -44,6 +46,7 @@ type PatternPreviewGridProps = {
 
 export function PatternPreviewGrid({
   pattern,
+  basePattern,
   cellPx,
   gridDisplay,
   usePaletteColors,
@@ -60,11 +63,16 @@ export function PatternPreviewGrid({
   const cellCount = pattern.width * pattern.height
   const canEditCells = Boolean(studioTool && studioTool !== 'select' && onCellAction)
   const canDragPaint = studioTool === 'brush' || studioTool === 'eraser'
+  const baseCellByKey = useMemo(() => {
+    if (!basePattern) return null
+    return new Map(basePattern.cells.map((c) => [`${c.x},${c.y}`, c] as const))
+  }, [basePattern])
 
   if (shouldUseCanvasPreview(cellCount)) {
     return (
       <PatternCanvasGrid
         pattern={pattern}
+        basePattern={basePattern}
         cellPx={cellPx}
         gridDisplay={gridDisplay}
         usePaletteColors={usePaletteColors}
@@ -189,11 +197,12 @@ export function PatternPreviewGrid({
           onMouseLeave={() => onHover(null)}
         >
           {pattern.cells.map((cell) => {
-            const fill = cellFillColor(cell, usePaletteColors)
+            const baseCell = baseCellByKey?.get(`${cell.x},${cell.y}`)
+            const fill = cellFillColor(cell, usePaletteColors, baseCell)
             const codeLabel = shouldDrawCellLabel(gridDisplay.label, cellPx)
               ? cellLabel(cell, gridDisplay.label)
               : null
-            const lumHex = luminanceHexForCell(cell, usePaletteColors)
+            const lumHex = luminanceHexForCell(cell, usePaletteColors, baseCell)
             const isComplete = Boolean(cell.bead && completedCodes.has(cell.bead.code))
             const isDimmedBySelection = Boolean(
               selectedCode && cell.bead && cell.bead.code !== selectedCode,

@@ -32,6 +32,7 @@ export type PatternProjectSettings = {
   usePaletteColors: boolean
   showCodes: boolean
   showGridGuidesOnTop: boolean
+  includePoofPixelsHandle: boolean
   cellPx: number
 }
 

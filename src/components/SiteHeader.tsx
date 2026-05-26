@@ -5,6 +5,7 @@ import {
   faFacebookF,
   faInstagram,
   faTiktok,
+  faXTwitter,
   faYoutube,
 } from '@fortawesome/free-brands-svg-icons'
 import { useTranslations } from 'next-intl'
@@ -15,6 +16,7 @@ type SiteHeaderProps = {
 
 const socialLinks = [
   { href: 'https://www.instagram.com/poofpixels', label: 'Instagram', icon: faInstagram },
+  { href: 'https://x.com/poofpixels', label: 'X', icon: faXTwitter },
   { href: 'https://www.tiktok.com/@poofpixels', label: 'TikTok', icon: faTiktok },
   { href: 'https://www.facebook.com/poofpixels', label: 'Facebook', icon: faFacebookF },
   { href: 'https://www.youtube.com/@poofpixels', label: 'YouTube', icon: faYoutube },

@@ -1133,6 +1133,10 @@ export function BeadPatternGenerator({
               onShowGridGuidesOnTopChange={(v) =>
                 ws.setSettings((s) => ({ ...s, showGridGuidesOnTop: v }))
               }
+              includePoofPixelsHandle={Boolean(ws.settings.includePoofPixelsHandle)}
+              onIncludePoofPixelsHandleChange={(v) =>
+                ws.setSettings((s) => ({ ...s, includePoofPixelsHandle: v }))
+              }
               completedCodes={ws.completedCodes}
               selectedCode={ws.selectedCode}
               onSelectCode={ws.setSelectedCode}

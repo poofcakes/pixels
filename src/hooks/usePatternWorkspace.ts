@@ -225,6 +225,7 @@ function defaultSettings(): PatternProjectSettings {
     usePaletteColors: true,
     showCodes: false,
     showGridGuidesOnTop: false,
+    includePoofPixelsHandle: false,
     cellPx: 15,
   }
 }

@@ -853,11 +853,23 @@ export async function patternFromImageFile(
   }
 }
 
+/** True when edits changed the matched bead vs the generated base pattern. */
+export function cellBeadChangedFromBase(
+  cell: PatternCell,
+  baseCell: PatternCell | undefined,
+): boolean {
+  if (!baseCell) return false
+  return (baseCell.bead?.code ?? null) !== (cell.bead?.code ?? null)
+}
+
 export function cellFillColor(
   cell: PatternCell,
   useMardColors: boolean,
+  baseCell?: PatternCell,
 ): string | undefined {
-  if (useMardColors) return cell.bead?.hex
+  const showBeadColor =
+    useMardColors || (baseCell !== undefined && cellBeadChangedFromBase(cell, baseCell))
+  if (showBeadColor) return cell.bead?.hex
   if (cell.sourceRgb) {
     const [r, g, b] = cell.sourceRgb
     return `rgb(${r}, ${g}, ${b})`
@@ -883,8 +895,12 @@ export function cellLabel(cell: PatternCell, label: PatternGridDisplay['label'])
 export function luminanceHexForCell(
   cell: PatternCell,
   usePaletteColors: boolean,
+  baseCell?: PatternCell,
 ): string {
-  if (usePaletteColors && cell.bead) return cell.bead.hex
+  const showBeadColor =
+    usePaletteColors ||
+    (baseCell !== undefined && cellBeadChangedFromBase(cell, baseCell))
+  if (showBeadColor && cell.bead) return cell.bead.hex
   if (cell.sourceRgb) {
     const [r, g, b] = cell.sourceRgb
     return `#${[r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('')}`
@@ -918,6 +934,8 @@ export function beadLabelTextShadow(lumHex: string): string {
 export type PatternGridDrawOptions = {
   display: PatternGridDisplay
   usePaletteColors: boolean
+  /** When comparing to source colours, still show bead fill on edited cells. */
+  basePattern?: BeadPattern | null
   completedCodes?: ReadonlySet<string>
   hovered?: { x: number; y: number } | null
   selectedCode?: string | null
@@ -1009,9 +1027,13 @@ export function drawPatternGrid(
   cellPx: number,
   options: PatternGridDrawOptions,
 ): void {
-  const { display, usePaletteColors, completedCodes, hovered, selectedCode } = options
+  const { display, usePaletteColors, basePattern, completedCodes, hovered, selectedCode } =
+    options
   const boardSize = display.boardSize && display.boardSize > 0 ? display.boardSize : null
   const showGridGuidesOnTop = Boolean(display.showGridGuidesOnTop)
+  const baseCellByKey = basePattern
+    ? new Map(basePattern.cells.map((c) => [`${c.x},${c.y}`, c] as const))
+    : null
 
   for (const cell of pattern.cells) {
     const px = cell.x * cellPx
@@ -1020,7 +1042,8 @@ export function drawPatternGrid(
     const isDimmedBySelection = Boolean(
       selectedCode && cell.bead && cell.bead.code !== selectedCode,
     )
-    const fill = cellFillColor(cell, display.useMardColors)
+    const baseCell = baseCellByKey?.get(`${cell.x},${cell.y}`)
+    const fill = cellFillColor(cell, display.useMardColors, baseCell)
 
     if (!fill) {
       ctx.fillStyle = (cell.x + cell.y) % 2 === 0 ? '#e8e4df' : '#ddd8d2'
@@ -1040,7 +1063,7 @@ export function drawPatternGrid(
       ? cellLabel(cell, display.label)
       : null
     if (text) {
-      const lumHex = luminanceHexForCell(cell, usePaletteColors)
+      const lumHex = luminanceHexForCell(cell, usePaletteColors, baseCell)
       ctx.fillStyle = beadLabelTextColor(lumHex)
       ctx.font = `bold ${beadLabelFontSize(text, cellPx)}px ui-monospace, monospace`
       ctx.textAlign = 'center'
@@ -1316,6 +1339,7 @@ export async function renderPatternExportToCanvas(
   pattern: BeadPattern,
   cellPx: number,
   display: PatternGridDisplay,
+  options: { includePoofPixelsHandle?: boolean } = {},
 ): Promise<HTMLCanvasElement> {
   const logo = await loadExportLogo()
   const stats = exportColorStats(pattern)
@@ -1371,10 +1395,19 @@ export async function renderPatternExportToCanvas(
     ctx.fillText('Poof Pixels Pattern', padding, 42)
   }
 
-  ctx.font = '600 18px ui-sans-serif, system-ui, sans-serif'
   ctx.textAlign = 'right'
-  ctx.fillStyle = EXPORT_THEME.muted
-  ctx.fillText('pixels.poofcakes.com', sheetW - padding, 58)
+  if (options.includePoofPixelsHandle) {
+    ctx.font = '700 22px ui-sans-serif, system-ui, sans-serif'
+    ctx.fillStyle = EXPORT_THEME.pink
+    ctx.fillText('@poofpixels', sheetW - padding, 46)
+    ctx.font = '600 18px ui-sans-serif, system-ui, sans-serif'
+    ctx.fillStyle = EXPORT_THEME.muted
+    ctx.fillText('pixels.poofcakes.com', sheetW - padding, 78)
+  } else {
+    ctx.font = '600 18px ui-sans-serif, system-ui, sans-serif'
+    ctx.fillStyle = EXPORT_THEME.muted
+    ctx.fillText('pixels.poofcakes.com', sheetW - padding, 58)
+  }
 
   ctx.fillStyle = EXPORT_THEME.deepPurple
   ctx.textAlign = 'left'

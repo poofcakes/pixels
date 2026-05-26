@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils'
 
 type PatternCanvasGridProps = {
   pattern: BeadPattern
+  basePattern?: BeadPattern
   cellPx: number
   gridDisplay: PatternGridDisplay
   usePaletteColors: boolean
@@ -34,6 +35,7 @@ type PatternCanvasGridProps = {
 
 export function PatternCanvasGrid({
   pattern,
+  basePattern,
   cellPx,
   gridDisplay,
   usePaletteColors,
@@ -68,12 +70,14 @@ export function PatternCanvasGrid({
     drawPatternGrid(ctx, pattern, cellPx, {
       display: gridDisplay,
       usePaletteColors,
+      basePattern,
       completedCodes,
       hovered,
       selectedCode,
     })
   }, [
     pattern,
+    basePattern,
     cellPx,
     gridDisplay,
     usePaletteColors,

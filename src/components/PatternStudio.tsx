@@ -53,6 +53,8 @@ type PatternStudioProps = {
   onShowCodesChange: (v: boolean) => void
   showGridGuidesOnTop: boolean
   onShowGridGuidesOnTopChange: (v: boolean) => void
+  includePoofPixelsHandle: boolean
+  onIncludePoofPixelsHandleChange: (v: boolean) => void
   completedCodes: ReadonlySet<string>
   selectedCode: string | null
   onSelectCode: (code: string | null) => void
@@ -80,15 +82,23 @@ type PatternStudioProps = {
   loading?: boolean
 }
 
-function exportFileBaseName(name: string): string {
+function exportFileBaseName(
+  name: string,
+  options: { showCodes: boolean; showGridGuidesOnTop: boolean },
+): string {
   const baseName =
     name
       .trim()
       .replace(/\.[^.]+$/, '')
       .replace(/[^\w.-]+/g, '-')
       .replace(/^-+|-+$/g, '') || 'pattern'
+  const unbrandedName = baseName.replace(/-poofpixels$/i, '')
+  const layoutTags = [
+    options.showCodes ? 'with-codes' : 'without-codes',
+    options.showGridGuidesOnTop ? 'with-grid' : 'without-grid',
+  ]
 
-  return baseName.endsWith('-poofpixels') ? baseName : `${baseName}-poofpixels`
+  return `${unbrandedName}-poofpixels-${layoutTags.join('-')}`
 }
 
 const BEAD_PITCH_CM = 0.26
@@ -114,6 +124,8 @@ export function PatternStudio({
   onShowCodesChange,
   showGridGuidesOnTop,
   onShowGridGuidesOnTopChange,
+  includePoofPixelsHandle,
+  onIncludePoofPixelsHandleChange,
   completedCodes,
   selectedCode,
   onSelectCode,
@@ -187,7 +199,7 @@ export function PatternStudio({
 
   const replaceHex =
     statRows.find((r) => r.code === replaceCode)?.hex ?? brushHex
-  const exportName = exportFileBaseName(projectName)
+  const exportName = exportFileBaseName(projectName, { showCodes, showGridGuidesOnTop })
   const exportGridDisplay = useMemo(
     () => ({ ...gridDisplay, useMardColors: true }),
     [gridDisplay],
@@ -225,7 +237,9 @@ export function PatternStudio({
 
   const downloadPng = useCallback(async () => {
     const exportCellPx = exportCellPxForPattern(pattern, exportGridDisplay)
-    const canvas = await renderPatternExportToCanvas(pattern, exportCellPx, exportGridDisplay)
+    const canvas = await renderPatternExportToCanvas(pattern, exportCellPx, exportGridDisplay, {
+      includePoofPixelsHandle,
+    })
     canvas.toBlob((blob) => {
       if (!blob) return
       const a = document.createElement('a')
@@ -234,18 +248,20 @@ export function PatternStudio({
       a.click()
       URL.revokeObjectURL(a.href)
     })
-  }, [pattern, exportName, exportGridDisplay])
+  }, [pattern, exportName, exportGridDisplay, includePoofPixelsHandle])
 
   const downloadPdf = useCallback(async () => {
     const exportCellPx = exportCellPxForPattern(pattern, exportGridDisplay)
-    const canvas = await renderPatternExportToCanvas(pattern, exportCellPx, exportGridDisplay)
+    const canvas = await renderPatternExportToCanvas(pattern, exportCellPx, exportGridDisplay, {
+      includePoofPixelsHandle,
+    })
     const blob = canvasToPdfBlob(canvas)
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
     a.download = `${exportName}.pdf`
     a.click()
     URL.revokeObjectURL(a.href)
-  }, [pattern, exportName, exportGridDisplay])
+  }, [pattern, exportName, exportGridDisplay, includePoofPixelsHandle])
 
   return (
     <div className="flex min-h-[min(720px,80vh)] min-w-0 flex-col gap-4 rounded-2xl border border-black/10 bg-white/80 p-4 shadow-sm lg:sticky lg:top-4">
@@ -372,6 +388,7 @@ export function PatternStudio({
           >
             <PatternPreviewGrid
               pattern={pattern}
+              basePattern={basePattern}
               cellPx={cellPx}
               gridDisplay={gridDisplay}
               usePaletteColors={usePaletteColors}
@@ -493,6 +510,15 @@ export function PatternStudio({
             </span>
             <p className="text-xs text-[var(--muted)]">{t('step6Hint')}</p>
           </div>
+          <label className="flex w-fit cursor-pointer items-center gap-1.5 text-xs text-[var(--muted)]/70">
+            <input
+              type="checkbox"
+              checked={includePoofPixelsHandle}
+              onChange={(e) => onIncludePoofPixelsHandleChange(e.target.checked)}
+              className="size-3.5 accent-[#8b7894] opacity-70"
+            />
+            <span>{t('includePoofPixelsHandle')}</span>
+          </label>
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
