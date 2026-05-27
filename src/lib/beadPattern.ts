@@ -750,6 +750,7 @@ export async function patternFromImageFile(
   const alphaThreshold = options.alphaThreshold ?? 128
   let fileWidth = 0
   let fileHeight = 0
+  let fileFit = scaleToMaxEdge(1, 1, MAX_SOURCE_EDGE_PX)
   const canvas = document.createElement('canvas')
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
   if (!ctx) throw new Error('Canvas not supported')
@@ -761,7 +762,7 @@ export async function patternFromImageFile(
       fileWidth = bitmap.width
       fileHeight = bitmap.height
 
-      const fileFit = scaleToMaxEdge(fileWidth, fileHeight, MAX_SOURCE_EDGE_PX)
+      fileFit = scaleToMaxEdge(fileWidth, fileHeight, MAX_SOURCE_EDGE_PX)
       if (fileFit.scale !== 1) {
         const resized = await createImageBitmap(bitmap, {
           resizeWidth: fileFit.width,
@@ -795,7 +796,7 @@ export async function patternFromImageFile(
       })
       fileWidth = image.naturalWidth
       fileHeight = image.naturalHeight
-      const fileFit = scaleToMaxEdge(fileWidth, fileHeight, MAX_SOURCE_EDGE_PX)
+      fileFit = scaleToMaxEdge(fileWidth, fileHeight, MAX_SOURCE_EDGE_PX)
       canvas.width = fileFit.width
       canvas.height = fileFit.height
       ctx.imageSmoothingEnabled = false
