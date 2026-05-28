@@ -135,6 +135,16 @@ async function prepareUploadImageFile(file: File): Promise<File> {
   return convertHeicToJpeg(file)
 }
 
+function describeUnknownError(error: unknown): string {
+  if (error instanceof Error) return error.message || error.name
+  if (typeof error === 'string') return error
+  return 'Unknown error'
+}
+
+function describeFileForDebug(file: File): string {
+  return `${file.name || 'unnamed'} (${file.type || 'no MIME type'}, ${file.size.toLocaleString()} bytes)`
+}
+
 const beadCodeCollator = new Intl.Collator(undefined, {
   numeric: true,
   sensitivity: 'base',
@@ -421,6 +431,7 @@ export function usePatternWorkspace() {
   const [brushCode, setBrushCode] = useState(() => firstPaletteCode('mard'))
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [errorDetails, setErrorDetails] = useState<string | null>(null)
   const [showRestoreBanner, setShowRestoreBanner] = useState(false)
 
   const [settings, setSettings] = useState<PatternProjectSettings>(defaultSettings)
@@ -590,6 +601,7 @@ export function usePatternWorkspace() {
       })
       setLoading(true)
       setError(null)
+      setErrorDetails(null)
 
       if (mixedBrandCodes && mixedBrandCodes.size === 0) {
         setError(t('mixedBrandsEmpty'))
@@ -681,9 +693,17 @@ export function usePatternWorkspace() {
             setError(null)
           }
         })
-        .catch(() => {
+        .catch((err: unknown) => {
           if (!cancelled) {
+            const details = `Processing failed: ${describeUnknownError(err)}. File: ${describeFileForDebug(target)}.`
+            console.error('[poofpixels] Pattern image processing failed', {
+              error: err,
+              fileName: target.name,
+              fileType: target.type,
+              fileSize: target.size,
+            })
             setError(t('errorLoad'))
+            setErrorDetails(details)
             setBasePattern(null)
             setEditHistory([{ colorOverrides: {}, cellEdits: {} }])
           }
@@ -740,9 +760,25 @@ export function usePatternWorkspace() {
       options: { preserveFileWidth?: boolean; projectName?: string } = {},
     ) => {
       if (!next) return
-      const preparedFile = await prepareUploadImageFile(next)
+      let preparedFile: File
+      try {
+        preparedFile = await prepareUploadImageFile(next)
+      } catch (err) {
+        const details = `Upload preparation failed: ${describeUnknownError(err)}. File: ${describeFileForDebug(next)}.`
+        console.error('[poofpixels] Upload image preparation failed', {
+          error: err,
+          fileName: next.name,
+          fileType: next.type,
+          fileSize: next.size,
+        })
+        setError(t('errorLoad'))
+        setErrorDetails(details)
+        return
+      }
       if (previewUrl) URL.revokeObjectURL(previewUrl)
       setAutoCanvasWidth(null)
+      setError(null)
+      setErrorDetails(null)
       autoZoomRef.current = true
       preserveExactFileWidthRef.current = Boolean(options.preserveFileWidth)
       setActiveProjectId(null)
@@ -1230,6 +1266,7 @@ export function usePatternWorkspace() {
     brushHex,
     loading,
     error,
+    errorDetails,
     showRestoreBanner,
     settings,
     setSettings,

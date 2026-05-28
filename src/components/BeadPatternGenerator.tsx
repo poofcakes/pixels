@@ -1164,7 +1164,16 @@ export function BeadPatternGenerator({
         </aside>
 
         <div className="min-w-0">
-          {ws.error && <p className="mb-3 text-sm text-red-700">{ws.error}</p>}
+          {ws.error && (
+            <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              <p>{ws.error}</p>
+              {ws.errorDetails && (
+                <p className="mt-1 break-words font-mono text-xs text-red-800/80">
+                  {ws.errorDetails}
+                </p>
+              )}
+            </div>
+          )}
           {!ws.pattern && !ws.loading && !ws.error && (
             <p className="text-[var(--muted)]">{ws.t('emptyPattern')}</p>
           )}
