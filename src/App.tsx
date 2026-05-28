@@ -1,7 +1,7 @@
 import { AboutPage } from '@/components/AboutPage'
 import { ColorChartPage } from '@/components/ColorChartPage'
 import { PatternMakerPage } from '@/components/PatternMakerPage'
-import { SiteHeader } from '@/components/SiteHeader'
+import { SiteFooter, SiteHeader } from '@/components/SiteHeader'
 import { BEAD_PALETTE_IDS, type BeadPaletteId } from '@/lib/beadPalettes'
 import { NextIntlClientProvider } from './next-intl-shim'
 import messages from '../messages/en.json'
@@ -28,6 +28,7 @@ export default function App() {
       ) : (
         <PatternMakerPage exampleAssetBasePath="pixels/examples/omok" />
       )}
+      <SiteFooter pathname={pathname} />
     </NextIntlClientProvider>
   )
 }

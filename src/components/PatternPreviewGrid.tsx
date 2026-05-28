@@ -204,9 +204,6 @@ export function PatternPreviewGrid({
               : null
             const lumHex = luminanceHexForCell(cell, usePaletteColors, baseCell)
             const isComplete = Boolean(cell.bead && completedCodes.has(cell.bead.code))
-            const isDimmedBySelection = Boolean(
-              selectedCode && cell.bead && cell.bead.code !== selectedCode,
-            )
 
             return (
               <div
@@ -239,7 +236,6 @@ export function PatternPreviewGrid({
                   'relative box-border shrink-0 font-mono leading-none',
                   fill && 'z-10',
                   canEditCells ? 'cursor-crosshair' : cell.bead && 'cursor-pointer',
-                  isDimmedBySelection && 'opacity-85 saturate-[0.92]',
                   !fill &&
                     'bg-[repeating-conic-gradient(#ddd8d2_0%_25%,#e8e4df_0%_50%)] bg-[length:8px_8px]',
                   hovered?.x === cell.x &&

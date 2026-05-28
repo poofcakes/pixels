@@ -4,19 +4,26 @@ import {
   Brush,
   Copy,
   Download,
+  ExternalLink,
   Eraser,
   FileText,
   FlipHorizontal2,
   PaintBucket,
   Pipette,
   Loader2,
+  Maximize2,
   MousePointer2,
   Undo2,
+  X,
 } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
-import { BeadCountList, type BeadStatRow } from '@/components/BeadCountList'
+import {
+  BeadCountList,
+  type BeadStatRow,
+  type BeadStatSortMode,
+} from '@/components/BeadCountList'
 import { ColorReplacementPicker } from '@/components/ColorReplacementPicker'
 import {
   MergeSimilarPopover,
@@ -62,6 +69,8 @@ type PatternStudioProps = {
   brushHex: string
   onBrushCodeChange: (code: string) => void
   statRows: BeadStatRow[]
+  statsSortMode: BeadStatSortMode
+  onStatsSortModeChange: (mode: BeadStatSortMode) => void
   hovered: { x: number; y: number } | null
   onHover: (cell: { x: number; y: number } | null) => void
   hoveredCode: string | null
@@ -73,6 +82,7 @@ type PatternStudioProps = {
   canUndo: boolean
   onPaintCell: (x: number, y: number, tool: StudioTool) => void
   onMirrorHorizontal: () => void
+  onExtendCanvas: (side: 'top' | 'right' | 'bottom' | 'left', count: number) => void | Promise<void>
   onPaintStrokeStart: () => void
   onPaintStrokeEnd: () => void
   onCopyBreakdown: () => void
@@ -133,6 +143,8 @@ export function PatternStudio({
   brushHex,
   onBrushCodeChange,
   statRows,
+  statsSortMode,
+  onStatsSortModeChange,
   hovered,
   onHover,
   hoveredCode,
@@ -144,6 +156,7 @@ export function PatternStudio({
   canUndo,
   onPaintCell,
   onMirrorHorizontal,
+  onExtendCanvas,
   onPaintStrokeStart,
   onPaintStrokeEnd,
   onCopyBreakdown,
@@ -157,6 +170,8 @@ export function PatternStudio({
   const [replaceCode, setReplaceCode] = useState<string | null>(null)
   const [brushPickerOpen, setBrushPickerOpen] = useState(false)
   const [mergeOpen, setMergeOpen] = useState(false)
+  const [buildMode, setBuildMode] = useState(false)
+  const [extendCount, setExtendCount] = useState(1)
   const mergePopoverRef = useRef<HTMLDivElement>(null)
   const previewContainerRef = useRef<HTMLDivElement>(null)
   const paintingRef = useRef(false)
@@ -170,6 +185,20 @@ export function PatternStudio({
     document.addEventListener('pointerdown', onPointerDown)
     return () => document.removeEventListener('pointerdown', onPointerDown)
   }, [mergeOpen])
+
+  useEffect(() => {
+    if (!buildMode) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setBuildMode(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [buildMode])
 
   useEffect(() => {
     const container = previewContainerRef.current
@@ -220,6 +249,8 @@ export function PatternStudio({
     [onSelectCode],
   )
 
+  const clampedExtendCount = Math.max(1, Math.floor(extendCount) || 1)
+
   const startPaint = useCallback(() => {
     paintingRef.current = true
     onPaintStrokeStart()
@@ -264,11 +295,28 @@ export function PatternStudio({
   }, [pattern, exportName, exportGridDisplay, includePoofPixelsHandle])
 
   return (
-    <div className="flex min-h-[min(720px,80vh)] min-w-0 flex-col gap-4 rounded-2xl border border-black/10 bg-white/80 p-4 shadow-sm lg:sticky lg:top-4">
-      {generatorSettingsPanel}
+    <div
+      className={cn(
+        'flex min-h-[min(720px,80vh)] min-w-0 flex-col gap-4 rounded-2xl border border-black/10 bg-white/80 p-4 shadow-sm lg:sticky lg:top-4',
+        buildMode && 'relative z-[100]',
+      )}
+    >
+      {!buildMode && generatorSettingsPanel}
 
-      <section className="flex min-h-0 flex-1 flex-col gap-4 rounded-xl border border-black/10 bg-white/70 p-3">
-        <div className="flex flex-wrap items-start justify-between gap-2">
+      <section
+        className={cn(
+          'flex min-h-0 flex-1 flex-col gap-4',
+          buildMode
+            ? 'fixed inset-0 z-[100] overflow-hidden rounded-none border-0 bg-[#fff8fd] p-3 shadow-2xl sm:p-5'
+            : 'rounded-xl border border-black/10 bg-white/70 p-3',
+        )}
+      >
+        <div
+          className={cn(
+            'flex flex-wrap items-start justify-between gap-2',
+            buildMode && 'shrink-0 rounded-xl border border-black/10 bg-white px-3 py-2 shadow-sm',
+          )}
+        >
           <div className="flex flex-col gap-1">
             <span className="text-xs font-semibold uppercase tracking-wide text-[var(--accent)]">
               {t('step4Label')}
@@ -294,11 +342,34 @@ export function PatternStudio({
               <Loader2 className="size-3.5 animate-spin" />
               {t('processing')}
             </span>
+            <button
+              type="button"
+              onClick={() => setBuildMode((open) => !open)}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-lg border border-black/15 bg-white px-2.5 py-1.5 text-xs font-medium hover:bg-black/[0.04]',
+                buildMode && 'border-[#34205f] bg-[#34205f] text-white hover:bg-[#34205f]/90',
+              )}
+            >
+              {buildMode ? <X className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+              {buildMode ? t('exitBuildMode') : t('buildMode')}
+            </button>
           </div>
         </div>
 
-        <div className="grid min-w-0 items-stretch gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]">
-          <div className="xl:col-span-2 flex flex-wrap items-center gap-3">
+        <div
+          className={cn(
+            'grid min-w-0 items-stretch gap-4',
+            buildMode
+              ? 'min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)_minmax(180px,35vh)_auto] overflow-hidden lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)] lg:grid-rows-[auto_minmax(0,1fr)_auto]'
+              : 'xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]',
+          )}
+        >
+          <div
+            className={cn(
+              'flex flex-wrap items-center gap-3',
+              buildMode ? 'lg:col-span-2' : 'xl:col-span-2',
+            )}
+          >
             <div className="flex flex-wrap items-center gap-2">
               {(
                 [
@@ -365,6 +436,35 @@ export function PatternStudio({
                   onClose={() => setMergeOpen(false)}
                 />
               </div>
+              <div className="flex flex-wrap items-center gap-1 rounded-lg border border-black/10 bg-white/70 px-2 py-1 text-xs">
+                <span className="text-[var(--muted)]">{t('extendCanvasLabel')}</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={256}
+                  value={extendCount}
+                  onChange={(e) => setExtendCount(Math.max(1, Number(e.target.value) || 1))}
+                  className="w-14 rounded border border-black/15 bg-white px-1.5 py-1 font-mono text-xs"
+                  aria-label={t('extendCanvasAmount')}
+                />
+                {(
+                  [
+                    ['top', t('extendCanvasTop')],
+                    ['right', t('extendCanvasRight')],
+                    ['bottom', t('extendCanvasBottom')],
+                    ['left', t('extendCanvasLeft')],
+                  ] as const
+                ).map(([side, label]) => (
+                  <button
+                    key={side}
+                    type="button"
+                    onClick={() => void onExtendCanvas(side, clampedExtendCount)}
+                    className="rounded-md border border-black/15 px-2 py-1 hover:bg-black/[0.04]"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
             <label className="ml-auto flex items-center gap-2 text-sm">
               <span className="text-[var(--muted)]">{t('zoomLabel')}</span>
@@ -382,7 +482,10 @@ export function PatternStudio({
 
           <div
             ref={previewContainerRef}
-            className="h-[min(65vh,720px)] min-h-0 overflow-auto rounded-xl border border-black/10 bg-[#f5edf4] p-4 [scrollbar-gutter:stable_both-edges]"
+            className={cn(
+              'min-h-0 overflow-auto rounded-xl border border-black/10 bg-[#f5edf4] p-4 [scrollbar-gutter:stable_both-edges]',
+              buildMode ? 'h-full' : 'h-[min(65vh,720px)]',
+            )}
             onPointerUp={endPaint}
             onPointerLeave={endPaint}
           >
@@ -404,20 +507,32 @@ export function PatternStudio({
             />
           </div>
 
-          <div className="flex h-[min(65vh,720px)] min-h-0 flex-col overflow-hidden rounded-xl border border-black/10 bg-white/80 p-3">
+          <div
+            className={cn(
+              'flex min-h-0 flex-col overflow-hidden rounded-xl border border-black/10 bg-white/80 p-3',
+              buildMode ? 'h-full' : 'h-[min(65vh,720px)]',
+            )}
+          >
             <BeadCountList
               pattern={pattern}
               rows={statRows}
+              sortMode={statsSortMode}
               selectedCode={selectedCode}
               hoveredCode={hoveredCode}
               completedCodes={completedCodes}
+              onSortModeChange={onStatsSortModeChange}
               onSelectCode={handleSelectCode}
               onReplaceCode={setReplaceCode}
               onToggleComplete={onToggleComplete}
             />
           </div>
 
-          <div className="xl:col-span-2 flex flex-col gap-2 border-t border-black/10 pt-3">
+          <div
+            className={cn(
+              'flex flex-col gap-2 border-t border-black/10 pt-3',
+              buildMode ? 'lg:col-span-2' : 'xl:col-span-2',
+            )}
+          >
             <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
               <p className="font-medium tabular-nums">
                 {t('footerSummary', {
@@ -431,14 +546,25 @@ export function PatternStudio({
                   ),
                 })}
               </p>
-              <button
-                type="button"
-                onClick={onCopyBreakdown}
-                className="inline-flex items-center gap-1 text-[var(--accent)] hover:underline"
-              >
-                <Copy className="size-3.5" />
-                {t('copyBreakdown')}
-              </button>
+              {buildMode ? (
+                <div
+                  className="ml-auto inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#34205f]"
+                  aria-label="Poofpixels"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/poofpixels-logo.webp" alt="" className="h-7 w-auto" />
+                  <span className="hidden sm:inline">Poofpixels</span>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onCopyBreakdown}
+                  className="inline-flex items-center gap-1 text-[var(--accent)] hover:underline"
+                >
+                  <Copy className="size-3.5" />
+                  {t('copyBreakdown')}
+                </button>
+              )}
             </div>
 
             {shouldUseCanvasPreview(pattern.width * pattern.height) && (
@@ -449,7 +575,8 @@ export function PatternStudio({
           </div>
         </div>
 
-        <section className="flex flex-col gap-3 rounded-xl border border-black/10 bg-white p-3">
+        {!buildMode && (
+          <section className="flex flex-col gap-3 rounded-xl border border-black/10 bg-white p-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="flex flex-col gap-1">
               <span className="text-xs font-semibold uppercase tracking-wide text-[var(--accent)]">
@@ -498,9 +625,11 @@ export function PatternStudio({
             </div>
             {pegboardSettingsPanel}
           </div>
-        </section>
+          </section>
+        )}
 
-        <section className="flex flex-col gap-3 rounded-xl border border-black/10 bg-white p-3">
+        {!buildMode && (
+          <section className="flex flex-col gap-3 rounded-xl border border-black/10 bg-white p-3">
           <div className="flex flex-col gap-1">
             <span className="text-xs font-semibold uppercase tracking-wide text-[var(--accent)]">
               {t('step6Label')}
@@ -536,8 +665,18 @@ export function PatternStudio({
               <FileText className="size-4" />
               {t('downloadPdf')}
             </button>
+            <a
+              href="https://ko-fi.com/poofcakes"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#ff5f5f]/30 bg-[#ff5f5f]/10 px-3 py-2 text-sm font-medium text-[#9a3030] hover:bg-[#ff5f5f]/15"
+            >
+              <ExternalLink className="size-4" />
+              {t('supportKoFi')}
+            </a>
           </div>
-        </section>
+          </section>
+        )}
       </section>
 
       <ColorReplacementPicker

@@ -27,6 +27,7 @@ export type PatternProjectSettings = {
   matchMethod: BeadMatchMethod
   trimTransparent: boolean
   removeBackground: boolean
+  allowTransparentBeads: boolean
   restrictToStock: boolean
   enabledStock: string[]
   usePaletteColors: boolean

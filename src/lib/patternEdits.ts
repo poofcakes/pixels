@@ -221,6 +221,52 @@ export function applyAllPatternEdits(
   }
 }
 
+export type PatternCanvasPadding = {
+  top: number
+  right: number
+  bottom: number
+  left: number
+}
+
+/** Grow the bead grid by empty rows/columns on the given sides (bakes current cell state). */
+export function extendBeadPattern(
+  pattern: BeadPattern,
+  padding: PatternCanvasPadding,
+): BeadPattern {
+  const top = Math.max(0, Math.floor(padding.top))
+  const right = Math.max(0, Math.floor(padding.right))
+  const bottom = Math.max(0, Math.floor(padding.bottom))
+  const left = Math.max(0, Math.floor(padding.left))
+  const width = pattern.width + left + right
+  const height = pattern.height + top + bottom
+
+  const cells: PatternCell[] = Array.from({ length: width * height }, (_, index) => {
+    const x = index % width
+    const y = Math.floor(index / width)
+    return { x, y, sourceRgb: null, bead: null }
+  })
+
+  for (const cell of pattern.cells) {
+    const x = cell.x + left
+    const y = cell.y + top
+    cells[y * width + x] = {
+      ...cell,
+      x,
+      y,
+    }
+  }
+
+  return {
+    ...pattern,
+    width,
+    height,
+    cells,
+    naturalWidth: width,
+    naturalHeight: height,
+    ...recomputePatternStats(cells),
+  }
+}
+
 export type EditSnapshot = {
   colorOverrides: Record<string, string>
   cellEdits: CellEditMap

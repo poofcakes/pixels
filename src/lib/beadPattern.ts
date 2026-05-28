@@ -1067,14 +1067,12 @@ export function drawPatternGrid(
   const baseCellByKey = basePattern
     ? new Map(basePattern.cells.map((c) => [`${c.x},${c.y}`, c] as const))
     : null
+  ctx.clearRect(0, 0, pattern.width * cellPx, pattern.height * cellPx)
 
   for (const cell of pattern.cells) {
     const px = cell.x * cellPx
     const py = cell.y * cellPx
     const isComplete = Boolean(cell.bead && completedCodes?.has(cell.bead.code))
-    const isDimmedBySelection = Boolean(
-      selectedCode && cell.bead && cell.bead.code !== selectedCode,
-    )
     const baseCell = baseCellByKey?.get(`${cell.x},${cell.y}`)
     const fill = cellFillColor(cell, display.useMardColors, baseCell)
 
@@ -1086,11 +1084,6 @@ export function drawPatternGrid(
 
     ctx.fillStyle = fill
     ctx.fillRect(px, py, cellPx, cellPx)
-
-    if (isDimmedBySelection) {
-      ctx.fillStyle = 'rgba(18,18,18,0.1)'
-      ctx.fillRect(px, py, cellPx, cellPx)
-    }
 
     const text = !isComplete && shouldDrawCellLabel(display.label, cellPx)
       ? cellLabel(cell, display.label)

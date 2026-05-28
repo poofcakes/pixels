@@ -38,6 +38,11 @@ function brandForColor(color: PickerColor): BeadPalette | null {
   return BEAD_PALETTES.find((palette) => color.code.startsWith(`${palette.label} `)) ?? null
 }
 
+function isTransparentColor(color: PickerColor): boolean {
+  const code = color.code.trim()
+  return code === 'H1' || code === 'MH1' || code.endsWith(' H1') || code.endsWith(' MH1')
+}
+
 function groupBrandColors(brand: BeadPalette, colors: PickerColor[]) {
   const sorted = [...colors].sort((a, b) =>
     displayCodeForBrand(a, brand).localeCompare(displayCodeForBrand(b, brand), undefined, {
@@ -126,6 +131,8 @@ export function ColorReplacementPicker({
   }
 
   function renderColorButton(color: PickerColor, label = color.code) {
+    const isTransparent = isTransparentColor(color)
+
     return (
       <li key={color.code}>
         <button
@@ -138,15 +145,29 @@ export function ColorReplacementPicker({
             'flex w-full flex-col items-center gap-1 rounded-lg border p-1 transition-colors hover:border-[var(--accent)]',
             color.code === replacingCode && 'ring-2 ring-[var(--accent)]',
           )}
-          title={color.code}
+          title={isTransparent ? `${color.code} (${t('transparentBeadLabel')})` : color.code}
         >
           <span
-            className="h-10 w-full rounded-t-lg rounded-b-sm border border-black/10"
-            style={{ backgroundColor: color.hex }}
-          />
+            className={cn(
+              'relative h-10 w-full overflow-hidden rounded-t-lg rounded-b-sm border border-black/10',
+              isTransparent && 'bg-[linear-gradient(45deg,#d7d0db_25%,transparent_25%,transparent_75%,#d7d0db_75%,#d7d0db),linear-gradient(45deg,#d7d0db_25%,transparent_25%,transparent_75%,#d7d0db_75%,#d7d0db)] bg-[length:12px_12px] bg-[position:0_0,6px_6px]',
+            )}
+            style={isTransparent ? undefined : { backgroundColor: color.hex }}
+          >
+            {isTransparent && (
+              <span className="absolute inset-0 flex items-center justify-center text-[9px] font-semibold uppercase tracking-wide text-[#34205f]">
+                Clear
+              </span>
+            )}
+          </span>
           <span className="max-w-full truncate font-mono text-[10px] font-semibold">
             {label}
           </span>
+          {isTransparent && (
+            <span className="-mt-1 max-w-full truncate text-[9px] text-[var(--muted)]">
+              {t('transparentBeadLabel')}
+            </span>
+          )}
         </button>
       </li>
     )

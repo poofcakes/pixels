@@ -8,17 +8,22 @@ import { cn } from '@/lib/utils'
 
 export type BeadStatRow = {
   code: string
+  name: string
   count: number
   hex: string
   percent: number
 }
 
+export type BeadStatSortMode = 'count' | 'name'
+
 type BeadCountListProps = {
   pattern: BeadPattern
   rows: BeadStatRow[]
+  sortMode: BeadStatSortMode
   selectedCode: string | null
   hoveredCode: string | null
   completedCodes: ReadonlySet<string>
+  onSortModeChange: (mode: BeadStatSortMode) => void
   onSelectCode: (code: string | null) => void
   onReplaceCode: (code: string) => void
   onToggleComplete: (code: string) => void
@@ -27,15 +32,17 @@ type BeadCountListProps = {
 export function BeadCountList({
   pattern,
   rows,
+  sortMode,
   selectedCode,
   hoveredCode,
   completedCodes,
+  onSortModeChange,
   onSelectCode,
   onReplaceCode,
   onToggleComplete,
 }: BeadCountListProps) {
   const t = useTranslations('pattern')
-  const maxCount = rows[0]?.count ?? 1
+  const maxCount = Math.max(1, ...rows.map((row) => row.count))
 
   return (
     <section className="flex h-full min-h-0 flex-col gap-2">
@@ -43,6 +50,17 @@ export function BeadCountList({
         <h2 className="text-sm font-semibold uppercase tracking-wide text-[#34205f]">
           {t('beadCountTitle', { count: pattern.uniqueColors })}
         </h2>
+        <label className="flex items-center gap-1 text-xs text-[var(--muted)]">
+          <span>{t('beadSortLabel')}</span>
+          <select
+            value={sortMode}
+            onChange={(event) => onSortModeChange(event.target.value as BeadStatSortMode)}
+            className="rounded-md border border-black/15 bg-white px-2 py-1 text-xs text-[var(--foreground)]"
+          >
+            <option value="count">{t('beadSortCount')}</option>
+            <option value="name">{t('beadSortName')}</option>
+          </select>
+        </label>
         <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
           <span className="inline-flex items-center gap-1">
             <MousePointer2 className="size-3.5" />
@@ -84,8 +102,11 @@ export function BeadCountList({
                   className="size-7 shrink-0 rounded-md border border-black/10"
                   style={{ backgroundColor: row.hex }}
                 />
-                <span className="w-14 shrink-0 font-mono text-sm font-bold tabular-nums">
-                  {row.code}
+                <span className="flex w-24 shrink-0 flex-col leading-tight">
+                  <span className="font-mono text-sm font-bold tabular-nums">{row.code}</span>
+                  {row.name !== row.code && (
+                    <span className="truncate text-[11px] text-[var(--muted)]">{row.name}</span>
+                  )}
                 </span>
                 <span className="relative h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-black/[0.06]">
                   <span

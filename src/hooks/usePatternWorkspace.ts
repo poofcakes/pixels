@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 
 import type { StudioTool } from '@/components/patternStudioTypes'
-import type { BeadStatRow } from '@/components/BeadCountList'
+import type { BeadStatRow, BeadStatSortMode } from '@/components/BeadCountList'
 import {
   BEAD_PALETTES,
   getBeadPalette,
@@ -28,6 +28,7 @@ import {
 import {
   applyAllPatternEdits,
   cellKey,
+  extendBeadPattern,
   hasAnyEdits,
   replaceColorOverrides,
   type EditSnapshot,
@@ -107,6 +108,19 @@ const beadCodeCollator = new Intl.Collator(undefined, {
   numeric: true,
   sensitivity: 'base',
 })
+
+async function canvasToPngFile(canvas: HTMLCanvasElement, name: string): Promise<File> {
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
+  if (!blob) throw new Error('Could not create PNG')
+  return new File([blob], name, { type: 'image/png' })
+}
+
+async function createBlankCanvasFile(width: number, height: number): Promise<File> {
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  return canvasToPngFile(canvas, `blank-canvas-${width}x${height}.png`)
+}
 
 function floodFillCellKeys(
   pattern: BeadPattern,
@@ -243,6 +257,7 @@ function defaultSettings(): PatternProjectSettings {
     matchMethod: 'lab76',
     trimTransparent: true,
     removeBackground: false,
+    allowTransparentBeads: false,
     restrictToStock: false,
     enabledStock: [],
     usePaletteColors: true,
@@ -264,6 +279,31 @@ function fileProcessKey(file: File): string {
 function codesProcessKey(codes: ReadonlySet<string> | null): string {
   if (!codes) return ''
   return [...codes].sort(beadCodeCollator.compare).join('|')
+}
+
+const TRANSPARENT_BEAD_CODES_BY_BRAND: Partial<Record<BrandPaletteId, readonly string[]>> = {
+  mard: ['H1'],
+  artkalM: ['MH1'],
+}
+
+function isTransparentBeadCode(code: string): boolean {
+  for (const palette of BEAD_PALETTES) {
+    if (palette.id === 'mixed') continue
+    const transparentCodes =
+      TRANSPARENT_BEAD_CODES_BY_BRAND[palette.id as BrandPaletteId] ?? []
+    if (transparentCodes.includes(code)) return true
+    if (
+      code.startsWith(`${palette.label} `) &&
+      transparentCodes.includes(code.slice(palette.label.length + 1))
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
+function withoutTransparentBeads(codes: Iterable<string>): Set<string> {
+  return new Set([...codes].filter((code) => !isTransparentBeadCode(code)))
 }
 
 function processDisplayDimensions(snapshot: ProcessSnapshot): { width: number; height: number } {
@@ -334,6 +374,7 @@ export function usePatternWorkspace() {
   const editStrokeActiveRef = useRef(false)
   const editStrokeHasEditRef = useRef(false)
   const preserveEditsOnProcessRef = useRef(false)
+  const preserveExactFileWidthRef = useRef(false)
   const autoZoomRef = useRef(true)
   const pendingTargetCanvasWidthRef = useRef<number | null | undefined>(undefined)
   const reprocessFileRef = useRef<File | null>(null)
@@ -358,7 +399,7 @@ export function usePatternWorkspace() {
 
   const [hovered, setHovered] = useState<{ x: number; y: number } | null>(null)
   const [completedCodes, setCompletedCodes] = useState<Set<string>>(() => new Set())
-  const [statsSortMode, setStatsSortMode] = useState<'count' | 'code'>('count')
+  const [statsSortMode, setStatsSortMode] = useState<BeadStatSortMode>('count')
 
   const palette = useMemo(() => getBeadPalette(settings.paletteId), [settings.paletteId])
   const paletteColorCount = getPaletteColorCount(settings.paletteId)
@@ -410,11 +451,17 @@ export function usePatternWorkspace() {
 
   const allowedCodes = useMemo(() => {
     if (settings.restrictToStock && mixedBrandCodes) {
-      return new Set([...enabledStockSet].filter((code) => mixedBrandCodes.has(code)))
+      return withoutTransparentBeads([...enabledStockSet].filter((code) => mixedBrandCodes.has(code)))
     }
-    if (settings.restrictToStock) return enabledStockSet
-    return mixedBrandCodes
-  }, [settings.restrictToStock, mixedBrandCodes, enabledStockSet])
+    if (settings.restrictToStock) return withoutTransparentBeads(enabledStockSet)
+    if (mixedBrandCodes) return withoutTransparentBeads(mixedBrandCodes)
+    return withoutTransparentBeads(allCodes)
+  }, [
+    settings.restrictToStock,
+    mixedBrandCodes,
+    enabledStockSet,
+    allCodes,
+  ])
 
   const gridDisplay = useMemo<PatternGridDisplay>(
     () => ({
@@ -497,13 +544,14 @@ export function usePatternWorkspace() {
           ? pendingTargetCanvasWidthRef.current
           : targetCanvasWidth
       pendingTargetCanvasWidthRef.current = undefined
+      const preserveExactFileWidth = preserveExactFileWidthRef.current
 
       const baseSignature = JSON.stringify({
         file: fileProcessKey(target),
         paletteId,
         paletteLimit,
         targetCanvasWidth: resolvedTargetCanvasWidth,
-        pixelBlockSize,
+        pixelBlockSize: preserveExactFileWidth ? 1 : pixelBlockSize,
         matchMethod,
         trimTransparent,
         removeBackground,
@@ -532,7 +580,7 @@ export function usePatternWorkspace() {
         paletteId,
         trimTransparent,
         removeBackground,
-        pixelBlockSize: resolvedTargetCanvasWidth ? 'auto' : pixelBlockSize,
+        pixelBlockSize: preserveExactFileWidth ? 1 : pixelBlockSize,
         targetCanvasWidth: resolvedTargetCanvasWidth,
         paletteLimit,
         matchMethod,
@@ -563,10 +611,13 @@ export function usePatternWorkspace() {
             const naturalWidth = result.naturalWidth ?? result.width
             setAutoCanvasWidth(naturalWidth)
             if (isNewFile) {
-              const desiredTarget = defaultTargetCanvasWidthForNaturalWidth(naturalWidth)
+              const desiredTarget = preserveExactFileWidth
+                ? null
+                : defaultTargetCanvasWidthForNaturalWidth(naturalWidth)
+              preserveExactFileWidthRef.current = false
               setSettings((s) => {
                 if (s.targetCanvasWidth === desiredTarget) return s
-                return { ...s, targetCanvasWidth: desiredTarget, pixelBlockSize: 'auto' }
+                return { ...s, targetCanvasWidth: desiredTarget }
               })
               if (desiredTarget !== resolvedTargetCanvasWidth) {
                 pendingTargetCanvasWidthRef.current = desiredTarget
@@ -653,24 +704,30 @@ export function usePatternWorkspace() {
   }, [])
 
   const onPickFile = useCallback(
-    async (next: File | null) => {
+    async (
+      next: File | null,
+      options: { preserveFileWidth?: boolean; projectName?: string } = {},
+    ) => {
       if (!next) return
       if (previewUrl) URL.revokeObjectURL(previewUrl)
       setAutoCanvasWidth(null)
       autoZoomRef.current = true
+      preserveExactFileWidthRef.current = Boolean(options.preserveFileWidth)
       setActiveProjectId(null)
-      setProjectName(fileBaseName(next.name))
+      setProjectName(options.projectName ?? fileBaseName(next.name))
       setPreviewUrl(URL.createObjectURL(next))
       const dimensions = await imageDimensions(next)
-      const nextTarget = dimensions
-        ? defaultTargetCanvasWidthForFileWidth(dimensions.width)
-        : null
+      const nextTarget = options.preserveFileWidth
+        ? null
+        : dimensions
+          ? defaultTargetCanvasWidthForFileWidth(dimensions.width)
+          : null
       pendingTargetCanvasWidthRef.current = nextTarget
       setFileDimensions(dimensions)
       setSettings((s) => ({
         ...s,
         targetCanvasWidth: nextTarget,
-        pixelBlockSize: 'auto',
+        pixelBlockSize: options.preserveFileWidth ? 1 : 'auto',
       }))
       const emptyEdits = { colorOverrides: {}, cellEdits: {} }
       latestEditSnapshotRef.current = emptyEdits
@@ -680,6 +737,19 @@ export function usePatternWorkspace() {
       await persistImage(next)
     },
     [previewUrl, persistImage],
+  )
+
+  const startBlankCanvas = useCallback(
+    async (width: number, height: number) => {
+      const safeWidth = Math.max(1, Math.min(MAX_BEAD_GRID_EDGE, Math.floor(width)))
+      const safeHeight = Math.max(1, Math.min(MAX_BEAD_GRID_EDGE, Math.floor(height)))
+      const blankFile = await createBlankCanvasFile(safeWidth, safeHeight)
+      await onPickFile(blankFile, {
+        preserveFileWidth: true,
+        projectName: `Blank canvas ${safeWidth}x${safeHeight}`,
+      })
+    },
+    [onPickFile],
   )
 
   const autosave = useCallback(() => {
@@ -808,22 +878,94 @@ export function usePatternWorkspace() {
     })
   }, [basePattern, pushEdit])
 
+  const extendPatternCanvas = useCallback(
+    (side: 'top' | 'right' | 'bottom' | 'left', count: number) => {
+      if (!basePattern) return
+      const amount = Math.max(1, Math.floor(count))
+      const additions = {
+        top: side === 'top' ? amount : 0,
+        right: side === 'right' ? amount : 0,
+        bottom: side === 'bottom' ? amount : 0,
+        left: side === 'left' ? amount : 0,
+      }
+      const currentSnapshot = latestEditSnapshotRef.current
+      const effective = applyAllPatternEdits(
+        basePattern,
+        currentSnapshot.colorOverrides,
+        currentSnapshot.cellEdits,
+      )
+      const nextWidth = effective.width + additions.left + additions.right
+      const nextHeight = effective.height + additions.top + additions.bottom
+      if (nextWidth > MAX_BEAD_GRID_EDGE || nextHeight > MAX_BEAD_GRID_EDGE) {
+        setError(t('extendCanvasTooLarge', { max: MAX_BEAD_GRID_EDGE }))
+        return
+      }
+
+      const extended = extendBeadPattern(effective, additions)
+      const previousProcess = lastProcessSnapshotRef.current
+      const previousSize = previousProcess ? processDisplayDimensions(previousProcess) : null
+      const nextProcess: ProcessSnapshot = previousProcess
+        ? {
+            ...previousProcess,
+            resultWidth: extended.designWidth ?? extended.width,
+            resultHeight: extended.designHeight ?? extended.height,
+          }
+        : {
+            fileKey: 'extended-canvas',
+            baseSignature: 'extended-canvas',
+            resultWidth: extended.designWidth ?? extended.width,
+            resultHeight: extended.designHeight ?? extended.height,
+            pegboardSize: settings.pegboardSize,
+            pegboardAnchor: settings.pegboardAnchor ?? 'top-left',
+          }
+      const nextSize = processDisplayDimensions(nextProcess)
+      if (!previousSize || previousSize.width !== nextSize.width || previousSize.height !== nextSize.height) {
+        autoZoomRef.current = true
+      }
+
+      setBasePattern(extended)
+      const emptyEdits = { colorOverrides: {}, cellEdits: {} }
+      latestEditSnapshotRef.current = emptyEdits
+      setEditHistory([emptyEdits])
+      lastProcessSnapshotRef.current = nextProcess
+      setFileDimensions({ width: extended.width, height: extended.height })
+      setAutoCanvasWidth(extended.naturalWidth ?? extended.width)
+      setSelectedCode(null)
+      setError(null)
+    },
+    [
+      basePattern,
+      settings.pegboardAnchor,
+      settings.pegboardSize,
+      t,
+    ],
+  )
+
   const statRows = useMemo((): BeadStatRow[] => {
     if (!pattern) return []
     const total = pattern.totalBeads || 1
-    const hexByCode = new Map<string, string>()
+    const colorByCode = new Map<string, { hex: string; name: string }>()
     for (const cell of pattern.cells) {
-      if (cell.bead) hexByCode.set(cell.bead.code, cell.bead.hex)
+      if (cell.bead) {
+        colorByCode.set(cell.bead.code, {
+          hex: cell.bead.hex,
+          name: cell.bead.name ?? cell.bead.code,
+        })
+      }
     }
     return Object.entries(pattern.counts)
       .map(([code, count]) => ({
         code,
+        name: colorByCode.get(code)?.name ?? code,
         count,
-        hex: hexByCode.get(code) ?? '#888',
+        hex: colorByCode.get(code)?.hex ?? '#888',
         percent: (count / total) * 100,
       }))
       .sort((a, b) => {
-        if (statsSortMode === 'code') return beadCodeCollator.compare(a.code, b.code)
+        if (statsSortMode === 'name') {
+          return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+            || beadCodeCollator.compare(a.code, b.code)
+        }
         return b.count - a.count || beadCodeCollator.compare(a.code, b.code)
       })
   }, [pattern, statsSortMode])
@@ -1077,8 +1219,10 @@ export function usePatternWorkspace() {
     setStatsSortMode,
     statRows,
     onPickFile,
+    startBlankCanvas,
     onPaintCell,
     mirrorHorizontal,
+    extendPatternCanvas,
     beginEditStroke,
     endEditStroke,
     copyBreakdown,

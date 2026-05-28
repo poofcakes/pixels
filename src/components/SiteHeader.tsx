@@ -14,6 +14,12 @@ type SiteHeaderProps = {
   pathname: string
 }
 
+const primaryLinks = [
+  { href: '/', key: 'home' },
+  { href: '/colors/', key: 'colors' },
+  { href: '/about', key: 'about' },
+] as const
+
 const socialLinks = [
   { href: 'https://www.instagram.com/poofpixels', label: 'Instagram', icon: faInstagram },
   { href: 'https://x.com/poofpixels', label: 'X', icon: faXTwitter },
@@ -31,11 +37,14 @@ function navClass(active: boolean): string {
   ].join(' ')
 }
 
+function isActivePath(pathname: string, href: string): boolean {
+  if (href === '/') return pathname === '/'
+  const normalized = href.replace(/\/+$/, '')
+  return pathname === normalized || pathname.startsWith(`${normalized}/`)
+}
+
 export function SiteHeader({ pathname }: SiteHeaderProps) {
   const t = useTranslations('siteNav')
-  const isColors = pathname === '/colors' || pathname.startsWith('/colors/')
-  const isAbout = pathname === '/about'
-  const isHome = pathname === '/'
 
   return (
     <header className="sticky top-0 z-30 border-b border-black/10 bg-[#fff8fd]/95 shadow-sm backdrop-blur">
@@ -57,15 +66,11 @@ export function SiteHeader({ pathname }: SiteHeaderProps) {
             aria-label={t('primaryAria')}
             className="flex flex-wrap items-center gap-1 rounded-full border border-black/10 bg-white/70 p-1 shadow-sm"
           >
-            <a href="/" className={navClass(isHome)}>
-              {t('home')}
-            </a>
-            <a href="/colors/" className={navClass(isColors)}>
-              {t('colors')}
-            </a>
-            <a href="/about" className={navClass(isAbout)}>
-              {t('about')}
-            </a>
+            {primaryLinks.map((link) => (
+              <a key={link.href} href={link.href} className={navClass(isActivePath(pathname, link.href))}>
+                {t(link.key)}
+              </a>
+            ))}
           </nav>
 
           <div className="hidden h-6 w-px bg-black/10 md:block" />
@@ -88,5 +93,60 @@ export function SiteHeader({ pathname }: SiteHeaderProps) {
         </div>
       </div>
     </header>
+  )
+}
+
+export function SiteFooter({ pathname }: SiteHeaderProps) {
+  const t = useTranslations('siteNav')
+
+  return (
+    <footer className="border-t border-black/10 bg-[#fff8fd]/70 text-sm text-[var(--muted)]">
+      <div className="mx-auto flex max-w-[min(1500px,100vw)] flex-col gap-3 px-4 py-5 sm:flex-row sm:items-center sm:justify-between">
+        <a
+          href="/"
+          className="flex w-fit items-center gap-2 font-semibold uppercase tracking-[0.16em] text-[#34205f] transition-colors hover:text-[var(--accent)]"
+          aria-label={t('homeAria')}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/poofpixels-logo.webp" alt="Poofpixels" className="h-7 w-auto" />
+          <span>Poofpixels</span>
+        </a>
+
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-3 sm:justify-end">
+          <nav aria-label={t('primaryAria')} className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {primaryLinks.map((link) => (
+              <a
+                key={link.href}
+                href={link.href}
+                className={[
+                  'transition-colors hover:text-[var(--accent)]',
+                  isActivePath(pathname, link.href)
+                    ? 'font-semibold text-[#34205f]'
+                    : 'text-[var(--muted)]',
+                ].join(' ')}
+              >
+                {t(link.key)}
+              </a>
+            ))}
+          </nav>
+
+          <nav aria-label={t('socialAria')} className="flex items-center gap-1.5">
+            {socialLinks.map((link) => (
+              <a
+                key={link.href}
+                href={link.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={link.label}
+                title={link.label}
+                className="inline-flex size-7 items-center justify-center rounded-full text-[var(--accent)] transition-colors hover:bg-[var(--accent)]/10"
+              >
+                <FontAwesomeIcon icon={link.icon} className="size-3.5" aria-hidden="true" />
+              </a>
+            ))}
+          </nav>
+        </div>
+      </div>
+    </footer>
   )
 }

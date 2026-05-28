@@ -35,6 +35,7 @@ import {
 } from '@/lib/patternCompletedStorage'
 import { savePatternPrefs } from '@/lib/beadPatternPreferences'
 import { loadEnabledStock, saveEnabledStock } from '@/lib/beadStockStorage'
+import { MAX_BEAD_GRID_EDGE } from '@/lib/patternPerformance'
 import { cn } from '@/lib/utils'
 
 const EXAMPLE_THUMB_SCALE = 1.5
@@ -178,6 +179,8 @@ export function BeadPatternGenerator({
   const [loadingExample, setLoadingExample] = useState<string | null>(null)
   const [targetWidthDraft, setTargetWidthDraft] = useState<number | null>(null)
   const [paletteLimitDraft, setPaletteLimitDraft] = useState<number | null>(null)
+  const [blankWidth, setBlankWidth] = useState(32)
+  const [blankHeight, setBlankHeight] = useState(32)
   const [cropDraft, setCropDraft] = useState<CropDraft | null>(null)
   const [cropDrag, setCropDrag] = useState<CropDrag | null>(null)
 
@@ -249,7 +252,6 @@ export function BeadPatternGenerator({
     updateProcessingSettings((s) => ({
       ...s,
       targetCanvasWidth: next,
-      pixelBlockSize: 'auto',
     }))
   }
 
@@ -258,6 +260,18 @@ export function BeadPatternGenerator({
     const next = Math.max(1, Math.min(value, paletteLimitMax))
     setPaletteLimitDraft(null)
     updateProcessingSettings((s) => ({ ...s, paletteLimit: next }))
+  }
+
+  function clampBlankSize(value: number): number {
+    return Math.max(1, Math.min(MAX_BEAD_GRID_EDGE, Math.floor(value) || 1))
+  }
+
+  async function startBlankCanvas(): Promise<void> {
+    if (!confirmRegenerateAfterEdits()) return
+    await ws.startBlankCanvas(
+      clampBlankSize(blankWidth),
+      clampBlankSize(blankHeight),
+    )
   }
 
   function openCropDialog(): void {
@@ -433,7 +447,6 @@ export function BeadPatternGenerator({
     ws.setSettings((s) => ({
       ...s,
       targetCanvasWidth: ws.targetCanvasWidthMax,
-      pixelBlockSize: 'auto',
     }))
   }, [ws, ws.settings.targetCanvasWidth, ws.targetCanvasWidthMax])
 
@@ -513,7 +526,7 @@ export function BeadPatternGenerator({
 
   const generatorSettingsPanel = (
     <section className="rounded-xl border border-black/10 bg-white p-3 text-sm">
-      <div className="mb-3 flex flex-col gap-1">
+      <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span className="text-xs font-semibold uppercase tracking-wide text-[var(--accent)]">
           {ws.t('step3Label')}
         </span>
@@ -522,11 +535,11 @@ export function BeadPatternGenerator({
         </h3>
       </div>
       <fieldset
-        className="group flex flex-col gap-4"
+        className="group grid gap-3 lg:grid-cols-2"
         disabled={!ws.file}
         aria-busy={ws.loading}
       >
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="flex flex-col gap-3">
           <label className="flex flex-col gap-1.5">
             <div className="flex items-center justify-between">
               <span className="font-medium">{ws.t('targetWidthLabel')}</span>
@@ -554,18 +567,39 @@ export function BeadPatternGenerator({
             <span className="text-xs text-[var(--muted)]">{ws.t('targetWidthHint')}</span>
           </label>
 
-          <div className="flex flex-col gap-3">
+          <label className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <span className="font-medium">{ws.t('paletteLimitLabel')}</span>
+              <span className="font-mono text-xs">{paletteLimitValue}</span>
+            </div>
+            <input
+              type="range"
+              min={20}
+              max={paletteLimitMax}
+              value={paletteLimitValue}
+              onChange={(e) => {
+                const v = Number(e.target.value)
+                setPaletteLimitDraft(Math.max(1, Math.min(v, paletteLimitMax)))
+              }}
+              onPointerUp={(e) => commitPaletteLimit(Number(e.currentTarget.value))}
+              onKeyUp={(e) => commitPaletteLimit(Number(e.currentTarget.value))}
+              onBlur={() => commitPaletteLimit(paletteLimitDraft)}
+              className="accent-[var(--accent)]"
+            />
+            <span className="text-xs text-[var(--muted)]">{ws.t('paletteLimitHint')}</span>
+          </label>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(220px,0.9fr)] lg:grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(220px,0.9fr)]">
             <label className="flex flex-col gap-1.5">
               <span className="font-medium">{ws.t('pixelBlockLabel')}</span>
               <select
                 value={
-                  ws.settings.targetCanvasWidth
+                  ws.settings.pixelBlockSize === 'auto'
                     ? 'auto'
-                    : ws.settings.pixelBlockSize === 'auto'
-                      ? 'auto'
-                      : String(ws.settings.pixelBlockSize)
+                    : String(ws.settings.pixelBlockSize)
                 }
-                disabled={Boolean(ws.settings.targetCanvasWidth)}
                 onChange={(e) => {
                   const v = e.target.value
                   updateProcessingSettings((s) => ({
@@ -573,7 +607,7 @@ export function BeadPatternGenerator({
                     pixelBlockSize: v === 'auto' ? 'auto' : Number(v),
                   }))
                 }}
-                className="rounded-md border border-black/15 bg-white px-3 py-2 font-mono text-sm disabled:opacity-50"
+                className="rounded-md border border-black/15 bg-white px-3 py-2 font-mono text-sm"
               >
                 <option value="auto">{ws.t('pixelBlockAuto')}</option>
                 <option value="1">{ws.t('pixelBlock1')}</option>
@@ -581,9 +615,10 @@ export function BeadPatternGenerator({
                 <option value="3">3×3</option>
                 <option value="4">4×4</option>
               </select>
+              <span className="text-xs leading-snug text-[var(--muted)]">{ws.t('pixelBlockHint')}</span>
             </label>
 
-            <div className="grid gap-2 rounded-lg border border-black/10 bg-[#fbf7fb] p-3">
+            <div className="grid gap-1.5 rounded-lg border border-black/10 bg-[#fbf7fb] p-2.5">
               <label className="flex cursor-pointer items-start gap-2">
                 <input
                   type="checkbox"
@@ -607,32 +642,9 @@ export function BeadPatternGenerator({
                 />
                 <span className="font-medium">{ws.t('removeBg')}</span>
               </label>
+
             </div>
           </div>
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between">
-              <span className="font-medium">{ws.t('paletteLimitLabel')}</span>
-              <span className="font-mono text-xs">{paletteLimitValue}</span>
-            </div>
-            <input
-              type="range"
-              min={20}
-              max={paletteLimitMax}
-              value={paletteLimitValue}
-              onChange={(e) => {
-                const v = Number(e.target.value)
-                setPaletteLimitDraft(Math.max(1, Math.min(v, paletteLimitMax)))
-              }}
-              onPointerUp={(e) => commitPaletteLimit(Number(e.currentTarget.value))}
-              onKeyUp={(e) => commitPaletteLimit(Number(e.currentTarget.value))}
-              onBlur={() => commitPaletteLimit(paletteLimitDraft)}
-              className="accent-[var(--accent)]"
-            />
-            <span className="text-xs text-[var(--muted)]">{ws.t('paletteLimitHint')}</span>
-          </label>
 
           <label className="flex flex-col gap-1.5 group-disabled:opacity-50">
             <span className="font-medium">{ws.t('matchMethodLabel')}</span>
@@ -658,7 +670,7 @@ export function BeadPatternGenerator({
           </label>
         </div>
       </fieldset>
-      <p className="mt-4 text-xs text-[var(--muted)]">{ws.t('privacy')}</p>
+      <p className="mt-3 text-xs text-[var(--muted)]">{ws.t('privacy')}</p>
     </section>
   )
 
@@ -798,15 +810,58 @@ export function BeadPatternGenerator({
             </div>
 
             {!ws.file ? (
-              <button
-                type="button"
-                onClick={() => inputRef.current?.click()}
-                className="flex w-full flex-col items-center gap-3 rounded-xl border-2 border-dashed border-black/15 bg-white/50 px-6 py-10 text-center transition-colors hover:border-[var(--accent)] hover:bg-white"
-              >
-                <ImagePlus className="size-8 text-[var(--accent)]" />
-                <span className="font-medium">{ws.t('uploadTitle')}</span>
-                <span className="text-sm text-[var(--muted)]">{ws.t('uploadHint')}</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => inputRef.current?.click()}
+                  className="flex w-full flex-col items-center gap-3 rounded-xl border-2 border-dashed border-black/15 bg-white/50 px-6 py-10 text-center transition-colors hover:border-[var(--accent)] hover:bg-white"
+                >
+                  <ImagePlus className="size-8 text-[var(--accent)]" />
+                  <span className="font-medium">{ws.t('uploadTitle')}</span>
+                  <span className="text-sm text-[var(--muted)]">{ws.t('uploadHint')}</span>
+                </button>
+                <div className="rounded-xl border border-black/10 bg-[#fbf7fb] p-3">
+                  <div className="flex flex-col gap-2">
+                    <div>
+                      <h2 className="text-sm font-medium">{ws.t('blankCanvasTitle')}</h2>
+                      <p className="mt-0.5 text-xs text-[var(--muted)]">
+                        {ws.t('blankCanvasHint')}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-end gap-2">
+                      <label className="flex w-24 flex-col gap-1 text-xs text-[var(--muted)]">
+                        {ws.t('blankCanvasWidth')}
+                        <input
+                          type="number"
+                          min={1}
+                          max={MAX_BEAD_GRID_EDGE}
+                          value={blankWidth}
+                          onChange={(e) => setBlankWidth(clampBlankSize(Number(e.target.value)))}
+                          className="rounded-md border border-black/15 bg-white px-2 py-1.5 font-mono text-xs text-[var(--foreground)]"
+                        />
+                      </label>
+                      <label className="flex w-24 flex-col gap-1 text-xs text-[var(--muted)]">
+                        {ws.t('blankCanvasHeight')}
+                        <input
+                          type="number"
+                          min={1}
+                          max={MAX_BEAD_GRID_EDGE}
+                          value={blankHeight}
+                          onChange={(e) => setBlankHeight(clampBlankSize(Number(e.target.value)))}
+                          className="rounded-md border border-black/15 bg-white px-2 py-1.5 font-mono text-xs text-[var(--foreground)]"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => void startBlankCanvas()}
+                        className="rounded-md bg-[#34205f] px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
+                      >
+                        {ws.t('blankCanvasAction')}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </>
             ) : (
               <div className="flex flex-col gap-3">
                 <label className="flex flex-col gap-1 text-xs font-medium text-[var(--muted)]">
@@ -1144,6 +1199,8 @@ export function BeadPatternGenerator({
               brushHex={ws.brushHex}
               onBrushCodeChange={ws.setBrushCode}
               statRows={ws.statRows}
+              statsSortMode={ws.statsSortMode}
+              onStatsSortModeChange={ws.setStatsSortMode}
               hovered={ws.hovered}
               onHover={ws.setHovered}
               hoveredCode={
@@ -1161,6 +1218,7 @@ export function BeadPatternGenerator({
               canUndo={ws.canUndoEdits}
               onPaintCell={ws.onPaintCell}
               onMirrorHorizontal={ws.mirrorHorizontal}
+              onExtendCanvas={ws.extendPatternCanvas}
               onPaintStrokeStart={ws.beginEditStroke}
               onPaintStrokeEnd={ws.endEditStroke}
               onCopyBreakdown={() => void ws.copyBreakdown()}
