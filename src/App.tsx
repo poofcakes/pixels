@@ -20,15 +20,19 @@ export default function App() {
 
   return (
     <NextIntlClientProvider messages={messages}>
-      <SiteHeader pathname={pathname} />
-      {isColorsRoute ? (
-        <ColorChartPage paletteId={paletteId} />
-      ) : isAboutRoute ? (
-        <AboutPage />
-      ) : (
-        <PatternMakerPage exampleAssetBasePath="pixels/examples/omok" />
-      )}
-      <SiteFooter pathname={pathname} />
+      <div className="flex min-h-screen flex-col">
+        <SiteHeader pathname={pathname} />
+        <div className="flex-1">
+          {isColorsRoute ? (
+            <ColorChartPage paletteId={paletteId} />
+          ) : isAboutRoute ? (
+            <AboutPage />
+          ) : (
+            <PatternMakerPage exampleAssetBasePath="pixels/examples/omok" />
+          )}
+        </div>
+        <SiteFooter pathname={pathname} />
+      </div>
     </NextIntlClientProvider>
   )
 }
