@@ -104,6 +104,37 @@ async function imageDimensions(file: Blob): Promise<{ width: number; height: num
   }
 }
 
+function isHeicLikeFile(file: File): boolean {
+  const type = file.type.toLowerCase()
+  return (
+    type === 'image/heic' ||
+    type === 'image/heif' ||
+    type === 'image/heic-sequence' ||
+    type === 'image/heif-sequence' ||
+    /\.(heic|heif)$/i.test(file.name)
+  )
+}
+
+async function convertHeicToJpeg(file: File): Promise<File> {
+  const { default: heic2any } = await import('heic2any')
+  const converted = await heic2any({
+    blob: file,
+    toType: 'image/jpeg',
+    quality: 0.92,
+  })
+  const blob = Array.isArray(converted) ? converted[0] : converted
+  const baseName = file.name.replace(/\.(heic|heif)$/i, '') || 'image'
+  return new File([blob], `${baseName}.jpg`, {
+    type: 'image/jpeg',
+    lastModified: file.lastModified,
+  })
+}
+
+async function prepareUploadImageFile(file: File): Promise<File> {
+  if (!isHeicLikeFile(file)) return file
+  return convertHeicToJpeg(file)
+}
+
 const beadCodeCollator = new Intl.Collator(undefined, {
   numeric: true,
   sensitivity: 'base',
@@ -709,14 +740,15 @@ export function usePatternWorkspace() {
       options: { preserveFileWidth?: boolean; projectName?: string } = {},
     ) => {
       if (!next) return
+      const preparedFile = await prepareUploadImageFile(next)
       if (previewUrl) URL.revokeObjectURL(previewUrl)
       setAutoCanvasWidth(null)
       autoZoomRef.current = true
       preserveExactFileWidthRef.current = Boolean(options.preserveFileWidth)
       setActiveProjectId(null)
-      setProjectName(options.projectName ?? fileBaseName(next.name))
-      setPreviewUrl(URL.createObjectURL(next))
-      const dimensions = await imageDimensions(next)
+      setProjectName(options.projectName ?? fileBaseName(preparedFile.name))
+      setPreviewUrl(URL.createObjectURL(preparedFile))
+      const dimensions = await imageDimensions(preparedFile)
       const nextTarget = options.preserveFileWidth
         ? null
         : dimensions
@@ -733,8 +765,8 @@ export function usePatternWorkspace() {
       latestEditSnapshotRef.current = emptyEdits
       setEditHistory([emptyEdits])
       lastProcessSnapshotRef.current = null
-      setFile(next)
-      await persistImage(next)
+      setFile(preparedFile)
+      await persistImage(preparedFile)
     },
     [previewUrl, persistImage],
   )

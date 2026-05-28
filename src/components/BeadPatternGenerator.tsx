@@ -777,12 +777,14 @@ export function BeadPatternGenerator({
           <input
             ref={inputRef}
             type="file"
-            accept="image/png,image/jpeg,image/webp,image/gif"
+            accept="image/*,.heic,.heif"
             className="sr-only"
             onChange={(e) => {
               const file = e.target.files?.[0] ?? null
               if (file && confirmRegenerateAfterEdits()) {
-                void ws.onPickFile(file)
+                void ws.onPickFile(file).catch(() => {
+                  ws.setError(ws.t('errorLoad'))
+                })
               }
               e.target.value = ''
             }}
