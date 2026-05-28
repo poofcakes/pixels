@@ -3,8 +3,8 @@
 import {
   Brush,
   Copy,
+  Coffee,
   Download,
-  ExternalLink,
   Eraser,
   FileText,
   FlipHorizontal2,
@@ -630,51 +630,59 @@ export function PatternStudio({
 
         {!buildMode && (
           <section className="flex flex-col gap-3 rounded-xl border border-black/10 bg-white p-3">
-          <div className="flex flex-col gap-1">
-            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--accent)]">
-              {t('step6Label')}
-            </span>
-            <span className="text-sm font-semibold uppercase tracking-wide text-[#34205f]">
-              {t('step6Title')}
-            </span>
-            <p className="text-xs text-[var(--muted)]">{t('step6Hint')}</p>
-          </div>
-          <label className="flex w-fit cursor-pointer items-center gap-1.5 text-xs text-[var(--muted)]/70">
-            <input
-              type="checkbox"
-              checked={includePoofPixelsHandle}
-              onChange={(e) => onIncludePoofPixelsHandleChange(e.target.checked)}
-              className="size-3.5 accent-[#8b7894] opacity-70"
-            />
-            <span>{t('includePoofPixelsHandle')}</span>
-          </label>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => void downloadPng()}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--accent)] px-3 py-2 text-sm text-white hover:opacity-90"
-            >
-              <Download className="size-4" />
-              {t('downloadPng')}
-            </button>
-            <button
-              type="button"
-              onClick={() => void downloadPdf()}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-black/15 bg-white px-3 py-2 text-sm hover:bg-black/[0.04]"
-            >
-              <FileText className="size-4" />
-              {t('downloadPdf')}
-            </button>
-            <a
-              href="https://ko-fi.com/poofcakes"
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#ff5f5f]/30 bg-[#ff5f5f]/10 px-3 py-2 text-sm font-medium text-[#9a3030] hover:bg-[#ff5f5f]/15"
-            >
-              <ExternalLink className="size-4" />
-              {t('supportKoFi')}
-            </a>
-          </div>
+            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(280px,420px)] md:items-start">
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-[var(--accent)]">
+                    {t('step6Label')}
+                  </span>
+                  <span className="text-sm font-semibold uppercase tracking-wide text-[#34205f]">
+                    {t('step6Title')}
+                  </span>
+                  <p className="text-xs text-[var(--muted)]">{t('step6Hint')}</p>
+                </div>
+                <label className="flex w-fit cursor-pointer items-center gap-1.5 text-xs text-[var(--muted)]/70">
+                  <input
+                    type="checkbox"
+                    checked={includePoofPixelsHandle}
+                    onChange={(e) => onIncludePoofPixelsHandleChange(e.target.checked)}
+                    className="size-3.5 accent-[#8b7894] opacity-70"
+                  />
+                  <span>{t('includePoofPixelsHandle')}</span>
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void downloadPng()}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--accent)] px-3 py-2 text-sm text-white hover:opacity-90"
+                  >
+                    <Download className="size-4" />
+                    {t('downloadPng')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void downloadPdf()}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-black/15 bg-white px-3 py-2 text-sm hover:bg-black/[0.04]"
+                  >
+                    <FileText className="size-4" />
+                    {t('downloadPdf')}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 rounded-xl border border-[#f19ac7]/30 bg-[#f19ac7]/10 p-3">
+                <p className="text-sm text-[#6d3152]">{t('supportKoFiText')}</p>
+                <a
+                  href="https://ko-fi.com/U7U75ESN"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex w-fit items-center justify-center gap-1.5 rounded-md bg-[#f19ac7] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
+                >
+                  <Coffee className="size-4" />
+                  {t('supportKoFiButton')}
+                </a>
+              </div>
+            </div>
           </section>
         )}
       </section>

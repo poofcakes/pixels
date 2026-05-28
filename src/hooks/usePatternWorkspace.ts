@@ -34,6 +34,7 @@ import {
   type EditSnapshot,
 } from '@/lib/patternEdits'
 import { imageIdFromFile, loadPatternImage, savePatternImage } from '@/lib/patternImageStorage'
+import { prepareUploadImageFile, readImageDimensions } from '@/lib/uploadImage'
 import {
   clearAutosave,
   createProjectId,
@@ -72,67 +73,6 @@ function defaultTargetCanvasWidthForFileWidth(fileWidth: number): number | null 
 
 function defaultTargetCanvasWidthForNaturalWidth(naturalWidth: number): number | null {
   return naturalWidth > DEFAULT_TARGET_CANVAS_WIDTH ? DEFAULT_TARGET_CANVAS_WIDTH : null
-}
-
-async function imageDimensions(file: Blob): Promise<{ width: number; height: number } | null> {
-  try {
-    if (typeof createImageBitmap === 'function') {
-      const bitmap = await createImageBitmap(file)
-      const dimensions = { width: bitmap.width, height: bitmap.height }
-      bitmap.close()
-      return dimensions
-    }
-  } catch {
-    // Fall through to HTMLImageElement decode.
-  }
-
-  try {
-    const url = URL.createObjectURL(file)
-    try {
-      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-        const element = new Image()
-        element.onload = () => resolve(element)
-        element.onerror = () => reject(new Error('image decode failed'))
-        element.src = url
-      })
-      return { width: img.naturalWidth, height: img.naturalHeight }
-    } finally {
-      URL.revokeObjectURL(url)
-    }
-  } catch {
-    return null
-  }
-}
-
-function isHeicLikeFile(file: File): boolean {
-  const type = file.type.toLowerCase()
-  return (
-    type === 'image/heic' ||
-    type === 'image/heif' ||
-    type === 'image/heic-sequence' ||
-    type === 'image/heif-sequence' ||
-    /\.(heic|heif)$/i.test(file.name)
-  )
-}
-
-async function convertHeicToJpeg(file: File): Promise<File> {
-  const { default: heic2any } = await import('heic2any')
-  const converted = await heic2any({
-    blob: file,
-    toType: 'image/jpeg',
-    quality: 0.92,
-  })
-  const blob = Array.isArray(converted) ? converted[0] : converted
-  const baseName = file.name.replace(/\.(heic|heif)$/i, '') || 'image'
-  return new File([blob], `${baseName}.jpg`, {
-    type: 'image/jpeg',
-    lastModified: file.lastModified,
-  })
-}
-
-async function prepareUploadImageFile(file: File): Promise<File> {
-  if (!isHeicLikeFile(file)) return file
-  return convertHeicToJpeg(file)
 }
 
 function describeUnknownError(error: unknown): string {
@@ -760,9 +700,9 @@ export function usePatternWorkspace() {
       options: { preserveFileWidth?: boolean; projectName?: string } = {},
     ) => {
       if (!next) return
-      let preparedFile: File
+      let prepared: Awaited<ReturnType<typeof prepareUploadImageFile>>
       try {
-        preparedFile = await prepareUploadImageFile(next)
+        prepared = await prepareUploadImageFile(next)
       } catch (err) {
         const details = `Upload preparation failed: ${describeUnknownError(err)}. File: ${describeFileForDebug(next)}.`
         console.error('[poofpixels] Upload image preparation failed', {
@@ -775,6 +715,7 @@ export function usePatternWorkspace() {
         setErrorDetails(details)
         return
       }
+      const preparedFile = prepared.file
       if (previewUrl) URL.revokeObjectURL(previewUrl)
       setAutoCanvasWidth(null)
       setError(null)
@@ -784,12 +725,10 @@ export function usePatternWorkspace() {
       setActiveProjectId(null)
       setProjectName(options.projectName ?? fileBaseName(preparedFile.name))
       setPreviewUrl(URL.createObjectURL(preparedFile))
-      const dimensions = await imageDimensions(preparedFile)
+      const dimensions = { width: prepared.width, height: prepared.height }
       const nextTarget = options.preserveFileWidth
         ? null
-        : dimensions
-          ? defaultTargetCanvasWidthForFileWidth(dimensions.width)
-          : null
+        : defaultTargetCanvasWidthForFileWidth(dimensions.width)
       pendingTargetCanvasWidthRef.current = nextTarget
       setFileDimensions(dimensions)
       setSettings((s) => ({
@@ -848,7 +787,7 @@ export function usePatternWorkspace() {
     const restored = new File([stored.blob], stored.meta.fileName, {
       type: stored.meta.mimeType,
     })
-    const dimensions = await imageDimensions(stored.blob)
+    const dimensions = await readImageDimensions(stored.blob)
     setSettings(session.settings)
     setProjectName(fileBaseName(stored.meta.fileName))
     const restoredEdits: EditSnapshot = {
@@ -1097,7 +1036,7 @@ export function usePatternWorkspace() {
       const restored = new File([stored.blob], project.imageFileName, {
         type: project.imageMimeType,
       })
-      const dimensions = await imageDimensions(stored.blob)
+      const dimensions = await readImageDimensions(stored.blob)
       setSettings(project.settings)
       setProjectName(project.name)
       const restoredEdits: EditSnapshot = {

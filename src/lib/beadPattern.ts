@@ -756,6 +756,23 @@ export async function patternFromImageFile(
   if (!ctx) throw new Error('Canvas not supported')
 
   let drawn = false
+  const drawHtmlImage = (image: HTMLImageElement) => {
+    fileWidth = image.naturalWidth
+    fileHeight = image.naturalHeight
+    fileFit = scaleToMaxEdge(fileWidth, fileHeight, MAX_SOURCE_EDGE_PX)
+    canvas.width = fileFit.width
+    canvas.height = fileFit.height
+    ctx.imageSmoothingEnabled = false
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
+  }
+  const loadHtmlImage = (src: string) =>
+    new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image()
+      img.onload = () => resolve(img)
+      img.onerror = () => reject(new Error('Image decode failed'))
+      img.src = src
+    })
   if (typeof createImageBitmap === 'function') {
     try {
       let bitmap = await createImageBitmap(file)
@@ -786,24 +803,30 @@ export async function patternFromImageFile(
   }
 
   if (!drawn) {
+    let objectUrlDecodeError: unknown = null
     const url = URL.createObjectURL(file)
     try {
-      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-        const img = new Image()
-        img.onload = () => resolve(img)
-        img.onerror = () => reject(new Error('Image decode failed'))
-        img.src = url
-      })
-      fileWidth = image.naturalWidth
-      fileHeight = image.naturalHeight
-      fileFit = scaleToMaxEdge(fileWidth, fileHeight, MAX_SOURCE_EDGE_PX)
-      canvas.width = fileFit.width
-      canvas.height = fileFit.height
-      ctx.imageSmoothingEnabled = false
-      ctx.clearRect(0, 0, canvas.width, canvas.height)
-      ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
+      drawHtmlImage(await loadHtmlImage(url))
+      drawn = true
+    } catch (err) {
+      objectUrlDecodeError = err
     } finally {
       URL.revokeObjectURL(url)
+    }
+
+    if (!drawn) {
+      try {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result))
+          reader.onerror = () => reject(reader.error ?? new Error('File read failed'))
+          reader.readAsDataURL(file)
+        })
+        drawHtmlImage(await loadHtmlImage(dataUrl))
+        drawn = true
+      } catch (err) {
+        throw objectUrlDecodeError instanceof Error ? objectUrlDecodeError : err
+      }
     }
   }
 
