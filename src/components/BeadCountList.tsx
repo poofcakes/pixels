@@ -2,6 +2,7 @@
 
 import { CheckCircle2, MousePointer2, Pencil } from 'lucide-react'
 import { useTranslations } from 'next-intl'
+import { useEffect, useRef } from 'react'
 
 import type { BeadPattern } from '@/lib/beadPattern'
 import { cn } from '@/lib/utils'
@@ -43,6 +44,15 @@ export function BeadCountList({
 }: BeadCountListProps) {
   const t = useTranslations('pattern')
   const maxCount = Math.max(1, ...rows.map((row) => row.count))
+  const rowRefs = useRef(new Map<string, HTMLLIElement>())
+
+  useEffect(() => {
+    if (!selectedCode) return
+    rowRefs.current.get(selectedCode)?.scrollIntoView({
+      block: 'nearest',
+      behavior: 'smooth',
+    })
+  }, [selectedCode, rows])
 
   return (
     <section className="flex h-full min-h-0 flex-col gap-2">
@@ -86,6 +96,10 @@ export function BeadCountList({
           return (
             <li
               key={row.code}
+              ref={(node) => {
+                if (node) rowRefs.current.set(row.code, node)
+                else rowRefs.current.delete(row.code)
+              }}
               className={cn(
                 'group relative flex items-center gap-2 rounded-lg border px-2 py-1.5 transition-colors',
                 isSelected && 'border-black/50 bg-black/[0.06]',

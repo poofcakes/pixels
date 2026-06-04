@@ -16,6 +16,7 @@ export type BeadPaletteId =
   | 'artkal'
   | 'artkalC'
   | 'artkalM'
+  | 'zllbtmo'
   | 'mixed'
 
 export type BeadPalette = {

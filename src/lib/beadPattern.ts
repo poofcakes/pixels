@@ -987,6 +987,12 @@ export function beadLabelTextShadow(lumHex: string): string {
     : '0 0 2px rgba(0,0,0,0.65), 0 1px 1px rgba(255,255,255,0.2)'
 }
 
+export function beadHighlightStrokeColor(lumHex: string, alpha = 0.88): string {
+  return isLightHex(lumHex)
+    ? `rgba(20,20,20,${alpha})`
+    : `rgba(255,255,255,${alpha})`
+}
+
 export type PatternGridDrawOptions = {
   display: PatternGridDisplay
   usePaletteColors: boolean
@@ -1165,9 +1171,12 @@ export function drawPatternGrid(
   }
 
   if (hovered) {
+    const cell = pattern.cells[hovered.y * pattern.width + hovered.x]
+    const baseCell = cell ? baseCellByKey?.get(`${cell.x},${cell.y}`) : undefined
+    const lumHex = cell ? luminanceHexForCell(cell, usePaletteColors, baseCell) : '#888888'
     const hx = hovered.x * cellPx
     const hy = hovered.y * cellPx
-    ctx.strokeStyle = 'rgba(52,32,95,0.45)'
+    ctx.strokeStyle = beadHighlightStrokeColor(lumHex, 0.72)
     ctx.lineWidth = 1
     ctx.strokeRect(hx + 0.5, hy + 0.5, cellPx - 1, cellPx - 1)
   }
@@ -1177,7 +1186,9 @@ export function drawPatternGrid(
       if (cell.bead?.code !== selectedCode) continue
       const px = cell.x * cellPx
       const py = cell.y * cellPx
-      ctx.strokeStyle = 'rgba(52,32,95,0.82)'
+      const baseCell = baseCellByKey?.get(`${cell.x},${cell.y}`)
+      const lumHex = luminanceHexForCell(cell, usePaletteColors, baseCell)
+      ctx.strokeStyle = beadHighlightStrokeColor(lumHex)
       ctx.lineWidth = 2
       ctx.strokeRect(px + 1, py + 1, cellPx - 2, cellPx - 2)
     }
@@ -1203,26 +1214,16 @@ export function renderPatternToCanvas(
   return canvas
 }
 
-function clippedCanvasText(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  maxWidth: number,
-): string {
-  if (ctx.measureText(text).width <= maxWidth) return text
-
-  let clipped = text
-  while (clipped.length > 1 && ctx.measureText(`${clipped}...`).width > maxWidth) {
-    clipped = clipped.slice(0, -1)
-  }
-
-  return `${clipped}...`
-}
-
 type ExportColorStat = {
   code: string
   count: number
   hex: string
 }
+
+const EXPORT_COLOR_CARD_W = 146
+const EXPORT_COLOR_CARD_H = 42
+const EXPORT_COLOR_CARD_GAP = 8
+const EXPORT_COLOR_TITLE_SIZE = 30
 
 const EXPORT_LOGO_SRC = '/poofpixels-logo.webp'
 const EXPORT_THEME = {
@@ -1264,6 +1265,31 @@ function exportColorStats(pattern: BeadPattern): ExportColorStat[] {
     .sort((a, b) => b.count - a.count || a.code.localeCompare(b.code, undefined, { numeric: true }))
 }
 
+function exportCodeParts(code: string): { brand: string | null; code: string } {
+  const mixedPrefixes: Array<[string, string]> = [
+    ['Artkal Mini · C chart ', 'Artkal Mini'],
+    ['Artkal Mini · M chart ', 'Artkal Mini'],
+    ['Artkal Mini ', 'Artkal Mini'],
+    ['Artkal-C Mini ', 'Artkal Mini'],
+    ['Artkal-M Mini ', 'Artkal Mini'],
+    ['Hama Midi ', 'Hama'],
+    ['IKEA Pyssla ', 'Pyssla'],
+    ['MARD ', 'MARD'],
+    ['Perler ', 'Perler'],
+    ['Artkal-S ', 'Artkal-S'],
+    ['Nabbi ', 'Nabbi'],
+    ['ZLLBTMO ', 'ZLLBTMO'],
+  ]
+
+  for (const [prefix, brand] of mixedPrefixes) {
+    if (code.startsWith(prefix)) {
+      return { brand, code: code.slice(prefix.length) }
+    }
+  }
+
+  return { brand: null, code }
+}
+
 function drawExportColorBreakdown(
   ctx: CanvasRenderingContext2D,
   stats: ExportColorStat[],
@@ -1271,44 +1297,59 @@ function drawExportColorBreakdown(
   y: number,
   width: number,
 ): number {
-  const titleSize = 30
-  const cardW = 118
-  const cardH = 30
-  const gap = 8
-  const columns = Math.max(1, Math.floor((width + gap) / (cardW + gap)))
+  const columns = Math.max(
+    1,
+    Math.floor((width + EXPORT_COLOR_CARD_GAP) / (EXPORT_COLOR_CARD_W + EXPORT_COLOR_CARD_GAP)),
+  )
 
   ctx.fillStyle = EXPORT_THEME.deepPurple
-  ctx.font = `800 ${titleSize}px ui-sans-serif, system-ui, sans-serif`
+  ctx.font = `800 ${EXPORT_COLOR_TITLE_SIZE}px ui-sans-serif, system-ui, sans-serif`
   ctx.textAlign = 'left'
   ctx.textBaseline = 'top'
   ctx.fillText('Bead Count & Colours', x, y)
 
-  const cardsY = y + titleSize + 18
+  const cardsY = y + EXPORT_COLOR_TITLE_SIZE + 18
   stats.forEach((stat, index) => {
     const col = index % columns
     const row = Math.floor(index / columns)
-    const cardX = x + col * (cardW + gap)
-    const cardY = cardsY + row * (cardH + gap)
+    const cardX = x + col * (EXPORT_COLOR_CARD_W + EXPORT_COLOR_CARD_GAP)
+    const cardY = cardsY + row * (EXPORT_COLOR_CARD_H + EXPORT_COLOR_CARD_GAP)
     const textColor = beadLabelTextColor(stat.hex)
+    const { brand, code } = exportCodeParts(stat.code)
 
     ctx.fillStyle = stat.hex
     ctx.beginPath()
-    ctx.roundRect(cardX, cardY, cardW, cardH, 7)
+    ctx.roundRect(cardX, cardY, EXPORT_COLOR_CARD_W, EXPORT_COLOR_CARD_H, 7)
     ctx.fill()
 
     ctx.fillStyle = textColor
-    ctx.font = '800 14px ui-monospace, SFMono-Regular, Menlo, monospace'
-    ctx.textBaseline = 'middle'
     ctx.textAlign = 'left'
-    ctx.fillText(clippedCanvasText(ctx, stat.code, cardW - 56), cardX + 8, cardY + cardH / 2)
+    if (brand) {
+      ctx.textBaseline = 'top'
+      ctx.font = '800 10px ui-sans-serif, system-ui, sans-serif'
+      ctx.fillText(brand, cardX + 8, cardY + 5)
+      ctx.font = '900 14px ui-monospace, SFMono-Regular, Menlo, monospace'
+      ctx.textBaseline = 'alphabetic'
+      ctx.fillText(code, cardX + 8, cardY + 31)
+    } else {
+      ctx.font = '900 15px ui-monospace, SFMono-Regular, Menlo, monospace'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(code, cardX + 8, cardY + EXPORT_COLOR_CARD_H / 2)
+    }
 
     ctx.textAlign = 'right'
-    ctx.font = '800 13px ui-monospace, SFMono-Regular, Menlo, monospace'
-    ctx.fillText(String(stat.count), cardX + cardW - 8, cardY + cardH / 2)
+    ctx.textBaseline = 'middle'
+    ctx.font = '900 13px ui-monospace, SFMono-Regular, Menlo, monospace'
+    ctx.fillText(String(stat.count), cardX + EXPORT_COLOR_CARD_W - 8, cardY + EXPORT_COLOR_CARD_H / 2)
   })
 
   const rows = Math.ceil(stats.length / columns)
-  return titleSize + 18 + rows * cardH + Math.max(0, rows - 1) * gap
+  return (
+    EXPORT_COLOR_TITLE_SIZE +
+    18 +
+    rows * EXPORT_COLOR_CARD_H +
+    Math.max(0, rows - 1) * EXPORT_COLOR_CARD_GAP
+  )
 }
 
 function drawExportRulers(
@@ -1402,8 +1443,18 @@ export async function renderPatternExportToCanvas(
   const exportGridH = rulerSize * 2 + gridH
   const sheetW = Math.max(EXPORT_A4_WIDTH_PX, Math.ceil(exportGridW + padding * 2))
   const contentW = sheetW - padding * 2
-  const colorRows = Math.ceil(stats.length / Math.max(1, Math.floor((contentW + 8) / (118 + 8))))
-  const computedBreakdownH = 30 + 18 + colorRows * 30 + Math.max(0, colorRows - 1) * 8
+  const colorColumns = Math.max(
+    1,
+    Math.floor(
+      (contentW + EXPORT_COLOR_CARD_GAP) / (EXPORT_COLOR_CARD_W + EXPORT_COLOR_CARD_GAP),
+    ),
+  )
+  const colorRows = Math.ceil(stats.length / colorColumns)
+  const computedBreakdownH =
+    EXPORT_COLOR_TITLE_SIZE +
+    18 +
+    colorRows * EXPORT_COLOR_CARD_H +
+    Math.max(0, colorRows - 1) * EXPORT_COLOR_CARD_GAP
   const footerH = footerGap + computedBreakdownH + 72
   const logicalCanvasH = headerH + exportGridH + footerH
   const exportScale = Math.max(

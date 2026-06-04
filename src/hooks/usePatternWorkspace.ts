@@ -34,7 +34,7 @@ import {
   type EditSnapshot,
 } from '@/lib/patternEdits'
 import { imageIdFromFile, loadPatternImage, savePatternImage } from '@/lib/patternImageStorage'
-import { prepareUploadImageFile, readImageDimensions } from '@/lib/uploadImage'
+import { prepareUploadImageFile } from '@/lib/uploadImage'
 import {
   clearAutosave,
   createProjectId,
@@ -101,6 +101,34 @@ async function createBlankCanvasFile(width: number, height: number): Promise<Fil
   canvas.width = width
   canvas.height = height
   return canvasToPngFile(canvas, `blank-canvas-${width}x${height}.png`)
+}
+
+async function prepareStoredPatternImage(
+  imageId: string,
+  stored: NonNullable<Awaited<ReturnType<typeof loadPatternImage>>>,
+  fallbackName: string,
+  fallbackMimeType: string,
+): Promise<{
+  file: File
+  dimensions: { width: number; height: number }
+}> {
+  const sourceFile = new File(
+    [stored.blob],
+    fallbackName || stored.meta.fileName || 'project-image',
+    {
+      type: fallbackMimeType || stored.meta.mimeType || stored.blob.type || 'application/octet-stream',
+    },
+  )
+  const prepared = await prepareUploadImageFile(sourceFile)
+  await savePatternImage(imageId, prepared.file, {
+    fileName: prepared.file.name,
+    mimeType: prepared.file.type || 'image/png',
+  })
+
+  return {
+    file: prepared.file,
+    dimensions: { width: prepared.width, height: prepared.height },
+  }
 }
 
 function floodFillCellKeys(
@@ -265,6 +293,7 @@ function codesProcessKey(codes: ReadonlySet<string> | null): string {
 const TRANSPARENT_BEAD_CODES_BY_BRAND: Partial<Record<BrandPaletteId, readonly string[]>> = {
   mard: ['H1'],
   artkalM: ['MH1'],
+  zllbtmo: ['Z002', 'Z005', 'Z012', 'Z018', 'Z023'],
 }
 
 function isTransparentBeadCode(code: string): boolean {
@@ -779,35 +808,45 @@ export function usePatternWorkspace() {
   const restoreSession = useCallback(async () => {
     const session = loadAutosave()
     if (!session) return
-    const stored = await loadPatternImage(session.imageId)
-    if (!stored) {
+    try {
+      const stored = await loadPatternImage(session.imageId)
+      if (!stored) {
+        setError(t('errorLoad'))
+        setErrorDetails('Saved project image was not found in this browser.')
+        return
+      }
+      const restored = await prepareStoredPatternImage(
+        session.imageId,
+        stored,
+        stored.meta.fileName,
+        stored.meta.mimeType,
+      )
+      setSettings(session.settings)
+      setProjectName(fileBaseName(restored.file.name))
+      const restoredEdits: EditSnapshot = {
+        colorOverrides: session.colorOverrides,
+        cellEdits: session.cellEdits,
+      }
+      setEditHistory([restoredEdits])
+      latestEditSnapshotRef.current = restoredEdits
+      setCompletedCodes(new Set(session.completedCodes))
+      setActiveProjectId(session.projectId)
+      setImageId(session.imageId)
+      setAutoCanvasWidth(null)
+      autoZoomRef.current = false
+      preserveEditsOnProcessRef.current = true
+      if (previewUrl) URL.revokeObjectURL(previewUrl)
+      setPreviewUrl(URL.createObjectURL(restored.file))
+      setFileDimensions(restored.dimensions)
+      setError(null)
+      setErrorDetails(null)
+      setFile(restored.file)
+      setShowRestoreBanner(false)
+      setRestoreDismissed(false)
+    } catch (err) {
       setError(t('errorLoad'))
-      return
+      setErrorDetails(`Saved project restore failed: ${describeUnknownError(err)}.`)
     }
-    const restored = new File([stored.blob], stored.meta.fileName, {
-      type: stored.meta.mimeType,
-    })
-    const dimensions = await readImageDimensions(stored.blob)
-    setSettings(session.settings)
-    setProjectName(fileBaseName(stored.meta.fileName))
-    const restoredEdits: EditSnapshot = {
-      colorOverrides: session.colorOverrides,
-      cellEdits: session.cellEdits,
-    }
-    setEditHistory([restoredEdits])
-    latestEditSnapshotRef.current = restoredEdits
-    setCompletedCodes(new Set(session.completedCodes))
-    setActiveProjectId(session.projectId)
-    setImageId(session.imageId)
-    setAutoCanvasWidth(null)
-    autoZoomRef.current = false
-    preserveEditsOnProcessRef.current = true
-    if (previewUrl) URL.revokeObjectURL(previewUrl)
-    setPreviewUrl(URL.createObjectURL(stored.blob))
-    setFileDimensions(dimensions)
-    setFile(restored)
-    setShowRestoreBanner(false)
-    setRestoreDismissed(false)
   }, [previewUrl, t])
 
   const dismissRestore = useCallback(() => {
@@ -1028,33 +1067,45 @@ export function usePatternWorkspace() {
 
   const openProject = useCallback(
     async (project: PatternProjectState) => {
-      const stored = await loadPatternImage(project.imageId)
-      if (!stored) {
+      try {
+        const stored = await loadPatternImage(project.imageId)
+        if (!stored) {
+          setError(t('errorLoad'))
+          setErrorDetails('Saved project image was not found in this browser.')
+          return
+        }
+        const restored = await prepareStoredPatternImage(
+          project.imageId,
+          stored,
+          project.imageFileName,
+          project.imageMimeType,
+        )
+        setSettings(project.settings)
+        setProjectName(project.name)
+        const restoredEdits: EditSnapshot = {
+          colorOverrides: project.colorOverrides,
+          cellEdits: project.cellEdits,
+        }
+        setEditHistory([restoredEdits])
+        latestEditSnapshotRef.current = restoredEdits
+        setCompletedCodes(new Set(project.completedCodes))
+        setActiveProjectId(project.id)
+        setImageId(project.imageId)
+        setAutoCanvasWidth(null)
+        autoZoomRef.current = false
+        preserveEditsOnProcessRef.current = true
+        if (previewUrl) URL.revokeObjectURL(previewUrl)
+        setPreviewUrl(URL.createObjectURL(restored.file))
+        setFileDimensions(restored.dimensions)
+        setError(null)
+        setErrorDetails(null)
+        setFile(restored.file)
+      } catch (err) {
         setError(t('errorLoad'))
-        return
+        setErrorDetails(
+          `Saved project restore failed: ${describeUnknownError(err)}. Project image: ${project.imageFileName || 'unnamed'} (${project.imageMimeType || 'no MIME type'}).`,
+        )
       }
-      const restored = new File([stored.blob], project.imageFileName, {
-        type: project.imageMimeType,
-      })
-      const dimensions = await readImageDimensions(stored.blob)
-      setSettings(project.settings)
-      setProjectName(project.name)
-      const restoredEdits: EditSnapshot = {
-        colorOverrides: project.colorOverrides,
-        cellEdits: project.cellEdits,
-      }
-      setEditHistory([restoredEdits])
-      latestEditSnapshotRef.current = restoredEdits
-      setCompletedCodes(new Set(project.completedCodes))
-      setActiveProjectId(project.id)
-      setImageId(project.imageId)
-      setAutoCanvasWidth(null)
-      autoZoomRef.current = false
-      preserveEditsOnProcessRef.current = true
-      if (previewUrl) URL.revokeObjectURL(previewUrl)
-      setPreviewUrl(URL.createObjectURL(stored.blob))
-      setFileDimensions(dimensions)
-      setFile(restored)
     },
     [previewUrl, t],
   )

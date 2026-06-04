@@ -1,13 +1,17 @@
 'use client'
 
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
 
+import { BeadInventoryPicker } from '@/components/BeadInventoryPicker'
 import { ColorChip } from '@/components/ColorChip'
 import {
   BEAD_PALETTES,
   getBeadPalette,
+  type BeadColor,
   type BeadPaletteId,
 } from '@/lib/beadPalettes'
+import { loadEnabledStock, saveEnabledStock } from '@/lib/beadStockStorage'
 import { MARD_COLOR_SERIES } from '@/lib/mardColors'
 
 const BRAND_PALETTES = BEAD_PALETTES.filter((palette) => palette.id !== 'mixed')
@@ -24,13 +28,48 @@ type ColorChartPageProps = {
   paletteId?: BeadPaletteId | null
 }
 
+type ColorViewMode = 'chart' | 'map' | 'family'
+
+type HslColor = {
+  h: number
+  s: number
+  l: number
+}
+
+const LIGHTNESS_BANDS = [
+  { id: 'pale', min: 0.82 },
+  { id: 'light', min: 0.65 },
+  { id: 'mid', min: 0.45 },
+  { id: 'deep', min: 0.25 },
+  { id: 'dark', min: 0 },
+] as const
+
+const COLOR_FAMILIES = [
+  { id: 'red', min: 345, max: 360 },
+  { id: 'red', min: 0, max: 15 },
+  { id: 'orange', min: 15, max: 45 },
+  { id: 'yellow', min: 45, max: 75 },
+  { id: 'green', min: 75, max: 165 },
+  { id: 'cyan', min: 165, max: 200 },
+  { id: 'blue', min: 200, max: 255 },
+  { id: 'purple', min: 255, max: 295 },
+  { id: 'pink', min: 295, max: 345 },
+] as const
+
+const COLOR_FAMILY_ORDER = ['red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'purple', 'pink', 'neutral'] as const
+
 function colorChartPath(id: BeadPaletteId): string {
   return `/colors/${id}/`
+}
+
+function colorDetailPath(paletteId: BeadPaletteId, code: string): string {
+  return `/colors/${paletteId}/${encodeURIComponent(code)}/`
 }
 
 function sourceLabelForPalette(id: BeadPaletteId): string {
   if (id === 'artkalC') return 'Artkal C Mini RGB colour chart PDF (2024)'
   if (id === 'artkalM') return 'Artkal M Mini RGB colour chart PDF (2025)'
+  if (id === 'zllbtmo') return 'Amazon product photo reference'
   return 'pixel-beads.com'
 }
 
@@ -44,9 +83,137 @@ function groupPaletteColorsByPrefix(palette: ReturnType<typeof getBeadPalette>) 
   return [...groups.entries()]
 }
 
+function hexToHsl(hex: string): HslColor {
+  const value = hex.replace('#', '')
+  const r = parseInt(value.slice(0, 2), 16) / 255
+  const g = parseInt(value.slice(2, 4), 16) / 255
+  const b = parseInt(value.slice(4, 6), 16) / 255
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  const l = (max + min) / 2
+
+  if (max === min) return { h: 0, s: 0, l }
+
+  const d = max - min
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+  let h: number
+
+  switch (max) {
+    case r:
+      h = (g - b) / d + (g < b ? 6 : 0)
+      break
+    case g:
+      h = (b - r) / d + 2
+      break
+    default:
+      h = (r - g) / d + 4
+      break
+  }
+
+  return { h: h * 60, s, l }
+}
+
+function hueSortValue(color: BeadColor): number {
+  const hsl = hexToHsl(color.hex)
+  return hsl.s < 0.08 ? 361 + hsl.l : hsl.h
+}
+
+function colorMapBands(colors: readonly BeadColor[]) {
+  return LIGHTNESS_BANDS.map((band) => ({
+    id: band.id,
+    colors: colors
+      .filter((color) => hexToHsl(color.hex).l >= band.min)
+      .filter((color) => {
+        const nextBand = LIGHTNESS_BANDS[LIGHTNESS_BANDS.findIndex((b) => b.id === band.id) - 1]
+        return !nextBand || hexToHsl(color.hex).l < nextBand.min
+      })
+      .sort((a, b) => hueSortValue(a) - hueSortValue(b) || a.code.localeCompare(b.code, undefined, { numeric: true })),
+  })).filter((band) => band.colors.length > 0)
+}
+
+function colorFamilyForHex(hex: string): (typeof COLOR_FAMILY_ORDER)[number] {
+  const hsl = hexToHsl(hex)
+  if (hsl.s < 0.12) return 'neutral'
+  return COLOR_FAMILIES.find((family) => hsl.h >= family.min && hsl.h < family.max)?.id ?? 'neutral'
+}
+
+function colorFamilyBands(colors: readonly BeadColor[]) {
+  return COLOR_FAMILY_ORDER.map((family) => ({
+    id: family,
+    colors: colors
+      .filter((color) => colorFamilyForHex(color.hex) === family)
+      .sort((a, b) => {
+        const aHsl = hexToHsl(a.hex)
+        const bHsl = hexToHsl(b.hex)
+        return bHsl.l - aHsl.l || aHsl.h - bHsl.h || a.code.localeCompare(b.code, undefined, { numeric: true })
+      }),
+  })).filter((band) => band.colors.length > 0)
+}
+
+function ColorChipGrid({
+  colors,
+  paletteId,
+}: {
+  colors: readonly BeadColor[]
+  paletteId: BeadPaletteId
+}) {
+  const t = useTranslations('colors')
+
+  return (
+    <div className="mt-5 grid grid-cols-3 gap-2 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-9 xl:grid-cols-11">
+      {colors.map((c) => (
+        <ColorChip
+          key={c.code}
+          code={c.code}
+          hex={c.hex}
+          name={c.name}
+          href={colorDetailPath(paletteId, c.code)}
+          copyLabel={t('copy')}
+          copiedLabel={t('copied')}
+        />
+      ))}
+    </div>
+  )
+}
+
+function PaletteInventoryEditor({ paletteId }: { paletteId: Exclude<BeadPaletteId, 'mixed'> }) {
+  const t = useTranslations('colors')
+  const palette = getBeadPalette(paletteId)
+  const allCodes = useMemo(() => palette.colors.map((color) => color.code), [palette.colors])
+  const [enabled, setEnabled] = useState<Set<string>>(() => loadEnabledStock(paletteId, allCodes))
+
+  useEffect(() => {
+    setEnabled(loadEnabledStock(paletteId, allCodes))
+  }, [paletteId, allCodes])
+
+  function handleEnabledChange(next: Set<string>): void {
+    setEnabled(next)
+    saveEnabledStock(paletteId, next)
+  }
+
+  return (
+    <section className="mt-8 rounded-2xl border border-black/10 bg-white/85 p-4 shadow-sm">
+      <div className="mb-3 flex flex-col gap-1">
+        <h2 className="text-lg font-semibold tracking-tight">
+          {t('stockEditorTitle', { palette: palette.label })}
+        </h2>
+        <p className="text-sm text-[var(--muted)]">{t('stockEditorHint')}</p>
+      </div>
+      <BeadInventoryPicker
+        paletteId={paletteId}
+        enabled={enabled}
+        onEnabledChange={handleEnabledChange}
+        title={t('stockEditorPickerTitle', { palette: palette.label })}
+      />
+      <p className="mt-3 text-xs text-[var(--muted)]">{t('stockEditorSaved')}</p>
+    </section>
+  )
+}
+
 export function ColorChartPage({ paletteId }: ColorChartPageProps = {}) {
   const t = useTranslations('colors')
   const tSeries = useTranslations('colors.series')
+  const [viewMode, setViewMode] = useState<ColorViewMode>('chart')
 
   if (!paletteId || paletteId === 'mixed') {
     return (
@@ -62,6 +229,30 @@ export function ColorChartPage({ paletteId }: ColorChartPageProps = {}) {
           <p className="max-w-2xl text-[var(--muted)]">{t('indexSubtitle')}</p>
           <p className="max-w-2xl text-sm text-[var(--muted)]">{t('sourceAll')}</p>
         </header>
+
+        <section className="mt-8">
+          <a
+            href="/mard-artkal-comparison/"
+            className="group block rounded-2xl border border-[var(--accent)]/25 bg-[var(--accent)]/10 p-5 shadow-sm transition-colors hover:border-[var(--accent)]/50 hover:bg-[var(--accent)]/15"
+          >
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--accent)]">
+                  Comparison tool
+                </p>
+                <h2 className="mt-1 text-2xl font-semibold tracking-tight text-[#34205f]">
+                  MARD and Artkal-M side by side
+                </h2>
+                <p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">
+                  Compare matching codes like A1 and MA1, then jump into individual colour pages.
+                </p>
+              </div>
+              <span className="w-fit rounded-full bg-white px-3 py-1.5 text-sm font-medium text-[var(--accent)] shadow-sm group-hover:underline">
+                Open comparison
+              </span>
+            </div>
+          </a>
+        </section>
 
         <section className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {BRAND_PALETTES.map((palette) => (
@@ -106,9 +297,11 @@ export function ColorChartPage({ paletteId }: ColorChartPageProps = {}) {
 
   const palette = getBeadPalette(paletteId)
   const isMard = paletteId === 'mard'
-  const isArtkalC = paletteId === 'artkalC'
-  const isGroupedArtkal = paletteId === 'artkalC' || paletteId === 'artkalM'
+  const isArtkalMini = paletteId === 'artkalC' || paletteId === 'artkalM'
+  const isGroupedArtkal = isArtkalMini
   const groupedPaletteColors = isGroupedArtkal ? groupPaletteColorsByPrefix(palette) : null
+  const mapBands = useMemo(() => colorMapBands(palette.colors), [palette.colors])
+  const familyBands = useMemo(() => colorFamilyBands(palette.colors), [palette.colors])
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-10 sm:py-12">
@@ -142,13 +335,37 @@ export function ColorChartPage({ paletteId }: ColorChartPageProps = {}) {
             .
           </p>
         )}
+        <div className="mt-3 flex w-fit flex-wrap gap-1 rounded-full border border-black/10 bg-white/70 p-1 text-sm shadow-sm">
+          {([
+            ['chart', t('viewChartOrder')],
+            ['map', t('viewColorMap')],
+            ['family', t('viewColorFamilies')],
+          ] as const).map(([mode, label]) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setViewMode(mode)}
+              className={[
+                'rounded-full px-3 py-1.5 font-medium transition-colors',
+                viewMode === mode
+                  ? 'bg-[var(--accent)] text-white'
+                  : 'text-[var(--muted)] hover:bg-[var(--accent)]/10 hover:text-[var(--accent)]',
+              ].join(' ')}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </header>
 
-      {isArtkalC && (
+      {isArtkalMini && (
         <aside className="mt-8 rounded-2xl border border-[var(--accent)]/25 bg-[var(--accent)]/10 p-4 text-sm">
-          <h2 className="font-semibold text-[#34205f]">{t('artkalCInfoTitle')}</h2>
-          <p className="mt-2 max-w-3xl text-[var(--foreground)]">{t('artkalCInfoC')}</p>
-          <p className="mt-2 max-w-3xl text-[var(--foreground)]">{t('artkalCInfoA')}</p>
+          <h2 className="font-semibold text-[#34205f]">{t('artkalMiniInfoTitle')}</h2>
+          <p className="mt-2 max-w-3xl text-[var(--foreground)]">{t('artkalMiniInfoBody')}</p>
+          <p className="mt-2 max-w-3xl text-[var(--foreground)]">
+            {paletteId === 'artkalC' ? t('artkalMiniCChartNote') : t('artkalMiniMChartNote')}
+          </p>
+          <p className="mt-2 max-w-3xl text-xs text-[var(--muted)]">{t('artkalMiniInfoOtherLine')}</p>
           <p className="mt-2 max-w-3xl text-xs text-[var(--muted)]">
             {t('sourcePrefix')}{' '}
             <a
@@ -164,8 +381,62 @@ export function ColorChartPage({ paletteId }: ColorChartPageProps = {}) {
         </aside>
       )}
 
+      <PaletteInventoryEditor paletteId={paletteId as Exclude<BeadPaletteId, 'mixed'>} />
+
       <div className="mt-12 flex flex-col gap-14">
-        {isMard ? MARD_COLOR_SERIES.map((series) => {
+        {viewMode === 'family' ? (
+          <section aria-labelledby={`palette-${palette.id}-color-families`}>
+            <div className="flex items-baseline justify-between gap-4 border-b border-black/10 pb-2">
+              <h2 id={`palette-${palette.id}-color-families`} className="text-xl font-semibold tracking-tight">
+                {t('colorFamiliesTitle')}
+              </h2>
+              <span className="font-mono text-xs text-[var(--muted)]">
+                {t('colorFamiliesHint')}
+              </span>
+            </div>
+            <div className="mt-6 flex flex-col gap-8">
+              {familyBands.map((band) => (
+                <section key={band.id}>
+                  <div className="flex items-baseline gap-3 border-b border-black/10 pb-1">
+                    <h3 className="text-sm font-semibold uppercase tracking-wide text-[#34205f]">
+                      {t(`colorFamily.${band.id}`)}
+                    </h3>
+                    <span className="font-mono text-xs text-[var(--muted)]">
+                      {t('countLabel', { count: band.colors.length })}
+                    </span>
+                  </div>
+                  <ColorChipGrid colors={band.colors} paletteId={palette.id} />
+                </section>
+              ))}
+            </div>
+          </section>
+        ) : viewMode === 'map' ? (
+          <section aria-labelledby={`palette-${palette.id}-color-map`}>
+            <div className="flex items-baseline justify-between gap-4 border-b border-black/10 pb-2">
+              <h2 id={`palette-${palette.id}-color-map`} className="text-xl font-semibold tracking-tight">
+                {t('colorMapTitle')}
+              </h2>
+              <span className="font-mono text-xs text-[var(--muted)]">
+                {t('colorMapHint')}
+              </span>
+            </div>
+            <div className="mt-6 flex flex-col gap-8">
+              {mapBands.map((band) => (
+                <section key={band.id}>
+                  <div className="flex items-baseline gap-3 border-b border-black/10 pb-1">
+                    <h3 className="text-sm font-semibold uppercase tracking-wide text-[#34205f]">
+                      {t(`lightnessBand.${band.id}`)}
+                    </h3>
+                    <span className="font-mono text-xs text-[var(--muted)]">
+                      {t('countLabel', { count: band.colors.length })}
+                    </span>
+                  </div>
+                  <ColorChipGrid colors={band.colors} paletteId={palette.id} />
+                </section>
+              ))}
+            </div>
+          </section>
+        ) : isMard ? MARD_COLOR_SERIES.map((series) => {
           let label: string
           try {
             label = tSeries(series.id as never)
@@ -206,17 +477,7 @@ export function ColorChartPage({ paletteId }: ColorChartPageProps = {}) {
                 </span>
               </div>
 
-              <div className="mt-5 grid grid-cols-3 gap-2 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-9 xl:grid-cols-11">
-                {series.colors.map((c) => (
-                  <ColorChip
-                    key={c.code}
-                    code={c.code}
-                    hex={c.hex}
-                    copyLabel={t('copy')}
-                    copiedLabel={t('copied')}
-                  />
-                ))}
-              </div>
+              <ColorChipGrid colors={series.colors} paletteId={palette.id} />
             </section>
           )
         }) : groupedPaletteColors ? (
@@ -232,17 +493,7 @@ export function ColorChartPage({ paletteId }: ColorChartPageProps = {}) {
                 </span>
               </div>
 
-              <div className="mt-5 grid grid-cols-3 gap-2 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-9 xl:grid-cols-11">
-                {colors.map((c) => (
-                  <ColorChip
-                    key={c.code}
-                    code={c.code}
-                    hex={c.hex}
-                    copyLabel={t('copy')}
-                    copiedLabel={t('copied')}
-                  />
-                ))}
-              </div>
+              <ColorChipGrid colors={colors} paletteId={palette.id} />
             </section>
           ))
         ) : (
@@ -256,17 +507,7 @@ export function ColorChartPage({ paletteId }: ColorChartPageProps = {}) {
               </span>
             </div>
 
-            <div className="mt-5 grid grid-cols-3 gap-2 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-9 xl:grid-cols-11">
-              {palette.colors.map((c) => (
-                <ColorChip
-                  key={c.code}
-                  code={c.code}
-                  hex={c.hex}
-                  copyLabel={t('copy')}
-                  copiedLabel={t('copied')}
-                />
-              ))}
-            </div>
+            <ColorChipGrid colors={palette.colors} paletteId={palette.id} />
           </section>
         )}
       </div>

@@ -75,6 +75,11 @@ const PEGBOARD_ANCHOR_ICONS = {
   'bottom-right': ArrowDownRight,
 } satisfies Record<PegboardAnchor, typeof ArrowUp>
 
+const PEGBOARD_SIZE_OPTIONS = [
+  { value: 52, labelKey: 'pegboardSizeStandard' },
+  { value: 78, labelKey: 'pegboardSizeExtraLarge' },
+] as const
+
 type BrandPaletteId = Exclude<BeadPaletteId, 'mixed'>
 
 type BeadPatternGeneratorProps = {
@@ -454,6 +459,17 @@ export function BeadPatternGenerator({
     return `${brand.label} ${code}`
   }
 
+  function preserveViewportAfterStockChange(): void {
+    const scrollY = window.scrollY
+    const restore = () => {
+      const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight)
+      window.scrollTo({ top: Math.min(scrollY, maxScroll), behavior: 'auto' })
+    }
+
+    requestAnimationFrame(restore)
+    window.setTimeout(restore, 0)
+  }
+
   function enabledForBrand(brand: (typeof brandPalettes)[number]): Set<string> {
     if (ws.settings.paletteId === 'mixed') {
       const prefix = `${brand.label} `
@@ -506,6 +522,7 @@ export function BeadPatternGenerator({
   function updateBrandStock(brand: (typeof brandPalettes)[number], next: Set<string>): boolean {
     if (!confirmRegenerateAfterEdits()) return false
     saveEnabledStock(brand.id, next)
+    preserveViewportAfterStockChange()
 
     if (selectedBrandIds.length === 1) {
       ws.setSettings((s) => ({ ...s, enabledStock: [...next] }))
@@ -702,20 +719,23 @@ export function BeadPatternGenerator({
             </span>
           </label>
 
-          <label className="flex max-w-48 flex-col gap-1 text-xs text-[var(--muted)]">
+          <label className="flex max-w-56 flex-col gap-1 text-xs text-[var(--muted)]">
             <span>{ws.t('pegboardSizeLabel')}</span>
-            <input
-              type="number"
-              min={1}
-              max={200}
+            <select
               value={ws.settings.pegboardSize ?? 52}
               disabled={!ws.settings.pegboardSize}
               onChange={(e) => {
-                const size = Math.max(1, Math.min(200, Number(e.target.value) || 52))
+                const size = Number(e.target.value) || 52
                 updatePegboardSettings((s) => ({ ...s, pegboardSize: size }))
               }}
               className="w-full rounded-md border border-black/15 bg-white px-2 py-1.5 font-mono text-xs text-[var(--foreground)] disabled:opacity-50"
-            />
+            >
+              {PEGBOARD_SIZE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {ws.t(option.labelKey)}
+                </option>
+              ))}
+            </select>
           </label>
           {ws.boardLayoutLabel && (
             <span className="w-fit rounded-full bg-white px-2 py-1 text-xs text-[var(--muted)]">

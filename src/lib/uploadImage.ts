@@ -100,14 +100,22 @@ async function convertHeicToJpeg(file: File): Promise<File> {
   })
 }
 
-type DrawableSource = ImageBitmap | HTMLImageElement
+type DrawableSource = ImageBitmap | HTMLImageElement | VideoFrame
+
+function isImageBitmap(source: DrawableSource): source is ImageBitmap {
+  return typeof ImageBitmap !== 'undefined' && source instanceof ImageBitmap
+}
+
+function isVideoFrame(source: DrawableSource): source is VideoFrame {
+  return typeof VideoFrame !== 'undefined' && source instanceof VideoFrame
+}
 
 async function decodeWithMime(buffer: ArrayBuffer, mime: string): Promise<DrawableSource> {
   const blob = new Blob([buffer], { type: mime })
 
   if (typeof ImageDecoder !== 'undefined') {
     try {
-      const decoder = new ImageDecoder({ data: blob, type: mime })
+      const decoder = new ImageDecoder({ data: buffer, type: mime })
       const result = await decoder.decode({ frameIndex: 0 })
       return result.image
     } catch {
@@ -174,14 +182,17 @@ async function decodeUploadBuffer(
 }
 
 function drawableSize(source: DrawableSource): { width: number; height: number } {
-  if (source instanceof ImageBitmap) {
+  if (isImageBitmap(source)) {
     return { width: source.width, height: source.height }
+  }
+  if (isVideoFrame(source)) {
+    return { width: source.displayWidth, height: source.displayHeight }
   }
   return { width: source.naturalWidth, height: source.naturalHeight }
 }
 
 function closeDrawable(source: DrawableSource): void {
-  if (source instanceof ImageBitmap) source.close()
+  if (isImageBitmap(source) || isVideoFrame(source)) source.close()
 }
 
 async function exportDrawableAsPng(source: DrawableSource, file: File): Promise<PreparedUploadImage> {

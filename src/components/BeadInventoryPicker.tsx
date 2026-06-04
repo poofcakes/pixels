@@ -92,6 +92,22 @@ export function BeadInventoryPicker({
     onEnabledChange(new Set())
   }
 
+  function preserveViewportAfterLayoutChange(): void {
+    const scrollY = window.scrollY
+    const restore = () => {
+      const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight)
+      window.scrollTo({ top: Math.min(scrollY, maxScroll), behavior: 'auto' })
+    }
+
+    requestAnimationFrame(restore)
+    window.setTimeout(restore, 0)
+  }
+
+  function toggleSwatchesOpen(): void {
+    preserveViewportAfterLayoutChange()
+    setSwatchesOpen((v) => !v)
+  }
+
   function seriesLabel(seriesId: string): string {
     try {
       return tMardSeries(seriesId as never)
@@ -106,7 +122,7 @@ export function BeadInventoryPicker({
       <li key={color.code}>
         <label
           className={cn(
-            'flex cursor-pointer flex-col items-center gap-0.5 rounded-md border p-1 text-center transition-colors',
+            'relative flex cursor-pointer flex-col items-center gap-0.5 rounded-md border p-1 text-center transition-colors',
             on
               ? 'border-[var(--accent)]/40 bg-[var(--accent)]/5'
               : 'border-black/10 opacity-50 hover:opacity-80',
@@ -117,7 +133,7 @@ export function BeadInventoryPicker({
             type="checkbox"
             checked={on}
             onChange={() => toggle(color.code)}
-            className="sr-only"
+            className="absolute inset-0 cursor-pointer opacity-0"
           />
           <span
             className="size-7 rounded border border-black/10"
@@ -132,7 +148,7 @@ export function BeadInventoryPicker({
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2 [overflow-anchor:none]">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -214,7 +230,7 @@ export function BeadInventoryPicker({
 
           <button
             type="button"
-            onClick={() => setSwatchesOpen((v) => !v)}
+            onClick={toggleSwatchesOpen}
             className="flex w-full items-center justify-between rounded-md border border-black/15 bg-white px-2.5 py-2 text-left text-xs hover:bg-black/[0.02]"
             aria-expanded={swatchesOpen}
           >
@@ -231,17 +247,17 @@ export function BeadInventoryPicker({
           </button>
 
           {swatchesOpen && (
-            <>
+            <div className="flex max-h-[22rem] min-h-0 flex-col gap-3 overflow-hidden rounded-md border border-black/10 bg-white/70 p-2 [overflow-anchor:none]">
               <input
                 type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={t('stockSearch')}
-                className="rounded-md border border-black/15 px-2 py-1.5 font-mono text-xs"
+                className="shrink-0 rounded-md border border-black/15 px-2 py-1.5 font-mono text-xs"
               />
 
               {groupedBySeries ? (
-                <div className="flex max-h-64 flex-col gap-3 overflow-y-auto">
+                <div className="flex min-h-0 flex-col gap-3 overflow-y-auto pr-1">
                   {groupedBySeries.map((series) => (
                     <section key={series.id}>
                       <h4 className="mb-1.5 flex items-baseline gap-2 text-xs font-medium">
@@ -259,13 +275,13 @@ export function BeadInventoryPicker({
                 </div>
               ) : (
                 <ul
-                  className="grid max-h-52 grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))] gap-1.5 overflow-y-auto"
+                  className="grid min-h-0 grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))] gap-1.5 overflow-y-auto pr-1"
                   role="list"
                 >
                   {filtered.map(renderSwatch)}
                 </ul>
               )}
-            </>
+            </div>
           )}
         </div>
       )}

@@ -9,13 +9,56 @@ import { cn } from '@/lib/utils'
 type ColorChipProps = {
   code: string
   hex: string
+  name?: string
+  href?: string
   copyLabel: string
   copiedLabel: string
 }
 
-export function ColorChip({ code, hex, copyLabel, copiedLabel }: ColorChipProps) {
+export function ColorChip({ code, hex, name, href, copyLabel, copiedLabel }: ColorChipProps) {
   const [copied, setCopied] = useState(false)
   const light = isLightHex(hex)
+  const content = (
+    <>
+      <span>
+        <span className="block font-semibold">{code}</span>
+        {name && !name.startsWith('Photo sample') && (
+          <span className="mt-0.5 block max-w-full truncate text-[9px] font-sans opacity-80">{name}</span>
+        )}
+      </span>
+      <span className="flex w-full items-end justify-between">
+        <span className="opacity-80">{hex}</span>
+        {!href && (
+          <span
+            aria-hidden
+            className={cn(
+              'rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100',
+              light ? 'bg-black/10' : 'bg-white/15',
+            )}
+          >
+            {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+          </span>
+        )}
+      </span>
+    </>
+  )
+  const className = cn(
+    'group relative flex aspect-square w-full flex-col items-start justify-between rounded-lg border p-2 text-left font-mono text-[10px] leading-tight transition-transform hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2',
+    light ? 'border-black/10 text-black/80' : 'border-white/15 text-white/90',
+  )
+
+  if (href) {
+    return (
+      <a
+        href={href}
+        aria-label={`View ${code} ${name ? `${name} ` : ''}${hex}`}
+        className={className}
+        style={{ backgroundColor: hex }}
+      >
+        {content}
+      </a>
+    )
+  }
 
   async function handleCopy() {
     try {
@@ -31,26 +74,11 @@ export function ColorChip({ code, hex, copyLabel, copiedLabel }: ColorChipProps)
     <button
       type="button"
       onClick={handleCopy}
-      aria-label={`${copied ? copiedLabel : copyLabel} ${code} ${hex}`}
-      className={cn(
-        'group relative flex aspect-square w-full flex-col items-start justify-between rounded-lg border p-2 text-left font-mono text-[10px] leading-tight transition-transform hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2',
-        light ? 'border-black/10 text-black/80' : 'border-white/15 text-white/90',
-      )}
+      aria-label={`${copied ? copiedLabel : copyLabel} ${code} ${name ? `${name} ` : ''}${hex}`}
+      className={className}
       style={{ backgroundColor: hex }}
     >
-      <span className="font-semibold">{code}</span>
-      <span className="flex w-full items-end justify-between">
-        <span className="opacity-80">{hex}</span>
-        <span
-          aria-hidden
-          className={cn(
-            'rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100',
-            light ? 'bg-black/10' : 'bg-white/15',
-          )}
-        >
-          {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
-        </span>
-      </span>
+      {content}
     </button>
   )
 }

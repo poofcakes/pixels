@@ -4,6 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
   faFacebookF,
   faInstagram,
+  faPinterestP,
   faTiktok,
   faXTwitter,
   faYoutube,
@@ -17,11 +18,13 @@ type SiteHeaderProps = {
 const primaryLinks = [
   { href: '/', key: 'home' },
   { href: '/colors/', key: 'colors' },
+  { href: '/color-matcher/', key: 'colorMatcher' },
   { href: '/about', key: 'about' },
 ] as const
 
 const socialLinks = [
   { href: 'https://www.instagram.com/poofpixels', label: 'Instagram', icon: faInstagram },
+  { href: 'https://pin.it/4ISmjmJAG', label: 'Pinterest', icon: faPinterestP },
   { href: 'https://x.com/poofpixels', label: 'X', icon: faXTwitter },
   { href: 'https://www.tiktok.com/@poofpixels', label: 'TikTok', icon: faTiktok },
   { href: 'https://www.facebook.com/poofpixels', label: 'Facebook', icon: faFacebookF },

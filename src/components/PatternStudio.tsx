@@ -233,6 +233,10 @@ export function PatternStudio({
     () => ({ ...gridDisplay, useMardColors: true }),
     [gridDisplay],
   )
+  const hoveredCell = hovered
+    ? pattern.cells[hovered.y * pattern.width + hovered.x]
+    : null
+  const hoveredBead = hoveredCell?.bead ?? null
 
   const handleCellAction = useCallback(
     (x: number, y: number) => {
@@ -478,6 +482,25 @@ export function PatternStudio({
               />
               <span className="w-10 font-mono text-xs">{cellPx}px</span>
             </label>
+            <div className="flex min-w-[12rem] items-center gap-2 rounded-lg border border-black/10 bg-white/70 px-2 py-1 text-xs">
+              <span
+                className="size-5 shrink-0 rounded border border-black/10"
+                style={{ backgroundColor: hoveredBead?.hex ?? 'transparent' }}
+              />
+              <span className="min-w-0">
+                <span className="block font-mono font-semibold">
+                  {hoveredBead?.code ?? t('hoveredColorEmpty')}
+                </span>
+                <span className="block truncate text-[var(--muted)]">
+                  {hoveredBead
+                    ? t('hoveredColorMeta', {
+                        row: (hovered?.y ?? 0) + 1,
+                        col: (hovered?.x ?? 0) + 1,
+                      })
+                    : t('hoveredColorHint')}
+                </span>
+              </span>
+            </div>
           </div>
 
           <div

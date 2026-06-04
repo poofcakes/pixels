@@ -5,6 +5,7 @@ import { Check } from 'lucide-react'
 
 import {
   beadLabelFontSize,
+  beadHighlightStrokeColor,
   beadLabelTextColor,
   beadLabelTextShadow,
   cellFillColor,
@@ -204,6 +205,9 @@ export function PatternPreviewGrid({
               : null
             const lumHex = luminanceHexForCell(cell, usePaletteColors, baseCell)
             const isComplete = Boolean(cell.bead && completedCodes.has(cell.bead.code))
+            const isHovered = hovered?.x === cell.x && hovered?.y === cell.y
+            const isSelected = Boolean(cell.bead && selectedCode === cell.bead.code)
+            const highlightColor = beadHighlightStrokeColor(lumHex, isSelected ? 0.9 : 0.72)
 
             return (
               <div
@@ -238,17 +242,14 @@ export function PatternPreviewGrid({
                   canEditCells ? 'cursor-crosshair' : cell.bead && 'cursor-pointer',
                   !fill &&
                     'bg-[repeating-conic-gradient(#ddd8d2_0%_25%,#e8e4df_0%_50%)] bg-[length:8px_8px]',
-                  hovered?.x === cell.x &&
-                    hovered?.y === cell.y &&
-                    'z-10 outline outline-1 -outline-offset-1 outline-[#34205f]/45',
-                  cell.bead &&
-                    selectedCode === cell.bead.code &&
-                    'z-10 outline outline-2 -outline-offset-2 outline-[#34205f]/80',
+                  isHovered && 'z-10 outline outline-1 -outline-offset-1',
+                  isSelected && 'z-10 outline outline-2 -outline-offset-2',
                 )}
                 style={{
                   width: cellPx,
                   height: cellPx,
                   backgroundColor: fill,
+                  outlineColor: isHovered || isSelected ? highlightColor : undefined,
                 }}
               >
                 {codeLabel && !isComplete && (

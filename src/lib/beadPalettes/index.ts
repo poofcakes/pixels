@@ -8,6 +8,7 @@ import { NABBI_COLORS, NABBI_COLOR_COUNT } from './nabbiColors'
 import { PERLER_COLORS, PERLER_COLOR_COUNT } from './perlerColors'
 import { PYSSLA_COLORS, PYSSLA_COLOR_COUNT } from './pysslaColors'
 import type { BeadColor, BeadPalette, BeadPaletteId } from './types'
+import { ZLLBTMO_COLORS, ZLLBTMO_COLOR_COUNT } from './zllbtmoColors'
 
 export type { BeadColor, BeadPalette, BeadPaletteId } from './types'
 
@@ -43,14 +44,14 @@ const SINGLE_BRAND_PALETTES: readonly BeadPalette[] = [
   },
   {
     id: 'artkalC',
-    label: 'Artkal-C Mini',
+    label: 'Artkal Mini · C chart',
     sourceUrl:
       'https://cdn.shopify.com/s/files/1/1323/8195/files/C_MINI_Beads_RGB_Color_Chart_2024.pdf?v=1744700289',
     colors: ARTKAL_C_COLORS,
   },
   {
     id: 'artkalM',
-    label: 'Artkal-M Mini',
+    label: 'Artkal Mini · M chart',
     sourceUrl:
       'https://cdn.shopify.com/s/files/1/1323/8195/files/M_MINI_Beads_RGB_Color_Chart_2025.pdf?v=1760661747',
     colors: ARTKAL_M_COLORS,
@@ -66,6 +67,12 @@ const SINGLE_BRAND_PALETTES: readonly BeadPalette[] = [
     label: 'IKEA Pyssla',
     sourceUrl: 'https://www.pixel-beads.com/ikea-pyssla-bead-color-chart',
     colors: PYSSLA_COLORS,
+  },
+  {
+    id: 'zllbtmo',
+    label: 'ZLLBTMO',
+    sourceUrl: '/pixels/references/zllbtmo-reference.webp',
+    colors: ZLLBTMO_COLORS,
   },
 ] as const
 
@@ -129,6 +136,8 @@ export function getPaletteColorCount(id: BeadPaletteId): number {
       return NABBI_COLOR_COUNT
     case 'pyssla':
       return PYSSLA_COLOR_COUNT
+    case 'zllbtmo':
+      return ZLLBTMO_COLOR_COUNT
     case 'mixed':
       return mixedPaletteColors.length
   }
