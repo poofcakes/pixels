@@ -10,6 +10,11 @@ import {
   type BeadPaletteId,
 } from '@/lib/beadPalettes'
 import { deltaE76, hexToRgb, rgbToLab } from '@/lib/beadColorMatch'
+import {
+  getMardStockCatalog,
+  MARD_STOCK_CATALOGS,
+  type MardStockCatalogId,
+} from '@/lib/mardStockSeries'
 
 type MatchQuality = 'excellent' | 'close' | 'usable' | 'weak'
 
@@ -44,15 +49,15 @@ function matchQualityClasses(quality: MatchQuality): string {
 }
 
 function comparePalettes(
-  sourcePalette: ReturnType<typeof getBeadPalette>,
-  targetPalette: ReturnType<typeof getBeadPalette>,
+  sourceColors: readonly BeadColor[],
+  targetColorsInput: readonly BeadColor[],
 ): PaletteMatch[] {
-  const targetColors = targetPalette.colors.map((color) => {
+  const targetColors = targetColorsInput.map((color) => {
     const rgb = hexToRgb(color.hex)
     return { color, lab: rgbToLab(...rgb) }
   })
 
-  return sourcePalette.colors.map((source) => {
+  return sourceColors.map((source) => {
     const sourceLab = rgbToLab(...hexToRgb(source.hex))
     let best = targetColors[0]
     let bestDistance = Infinity
@@ -93,18 +98,47 @@ function MatchSwatch({ color }: { color: BeadColor }) {
   )
 }
 
+function paletteColorsForMardCatalog(
+  palette: ReturnType<typeof getBeadPalette>,
+  catalogId: MardStockCatalogId,
+): readonly BeadColor[] {
+  if (palette.id !== 'mard') return palette.colors
+  const catalogCodes = new Set(getMardStockCatalog(catalogId).codes)
+  return palette.colors.filter((color) => catalogCodes.has(color.code))
+}
+
+function mardCatalogLabel(
+  t: ReturnType<typeof useTranslations>,
+  catalogId: MardStockCatalogId,
+): string {
+  const catalog = getMardStockCatalog(catalogId)
+  return t(catalog.labelKey)
+}
+
 export function ColorMatcherPage() {
   const t = useTranslations('colors')
   const [matchSourceId, setMatchSourceId] = useState<BeadPaletteId>('mard')
   const [matchTargetId, setMatchTargetId] = useState<BeadPaletteId>('artkalC')
+  const [matchSourceMardCatalogId, setMatchSourceMardCatalogId] =
+    useState<MardStockCatalogId>('all')
+  const [matchTargetMardCatalogId, setMatchTargetMardCatalogId] =
+    useState<MardStockCatalogId>('all')
   const [matchFilter, setMatchFilter] = useState<MatchQuality | 'all'>('all')
   const [matchQuery, setMatchQuery] = useState('')
 
   const matchSourcePalette = getBeadPalette(matchSourceId)
   const matchTargetPalette = getBeadPalette(matchTargetId)
+  const matchSourceColors = useMemo(
+    () => paletteColorsForMardCatalog(matchSourcePalette, matchSourceMardCatalogId),
+    [matchSourcePalette, matchSourceMardCatalogId],
+  )
+  const matchTargetColors = useMemo(
+    () => paletteColorsForMardCatalog(matchTargetPalette, matchTargetMardCatalogId),
+    [matchTargetPalette, matchTargetMardCatalogId],
+  )
   const matches = useMemo(
-    () => comparePalettes(matchSourcePalette, matchTargetPalette),
-    [matchSourcePalette, matchTargetPalette],
+    () => comparePalettes(matchSourceColors, matchTargetColors),
+    [matchSourceColors, matchTargetColors],
   )
   const query = matchQuery.trim().toLowerCase()
   const filteredMatches = matches.filter((match) => {
@@ -151,6 +185,21 @@ export function ColorMatcherPage() {
                 </option>
               ))}
             </select>
+            {matchSourceId === 'mard' && (
+              <select
+                value={matchSourceMardCatalogId}
+                onChange={(event) =>
+                  setMatchSourceMardCatalogId(event.target.value as MardStockCatalogId)
+                }
+                className="mt-2 w-full rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm"
+              >
+                {MARD_STOCK_CATALOGS.map((catalog) => (
+                  <option key={catalog.id} value={catalog.id}>
+                    {t(catalog.labelKey)} ({catalog.codes.length})
+                  </option>
+                ))}
+              </select>
+            )}
           </label>
           <label className="text-sm font-medium">
             {t('matchTargetLabel')}
@@ -165,6 +214,21 @@ export function ColorMatcherPage() {
                 </option>
               ))}
             </select>
+            {matchTargetId === 'mard' && (
+              <select
+                value={matchTargetMardCatalogId}
+                onChange={(event) =>
+                  setMatchTargetMardCatalogId(event.target.value as MardStockCatalogId)
+                }
+                className="mt-2 w-full rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm"
+              >
+                {MARD_STOCK_CATALOGS.map((catalog) => (
+                  <option key={catalog.id} value={catalog.id}>
+                    {t(catalog.labelKey)} ({catalog.codes.length})
+                  </option>
+                ))}
+              </select>
+            )}
           </label>
         </div>
 
@@ -212,8 +276,18 @@ export function ColorMatcherPage() {
           <table className="w-full min-w-[720px] border-collapse text-sm">
             <thead className="sticky top-0 bg-white text-left text-xs uppercase tracking-wide text-[var(--muted)]">
               <tr>
-                <th className="border-b border-black/10 px-4 py-3">{matchSourcePalette.label}</th>
-                <th className="border-b border-black/10 px-4 py-3">{matchTargetPalette.label}</th>
+                <th className="border-b border-black/10 px-4 py-3">
+                  {matchSourcePalette.label}
+                  {matchSourceId === 'mard'
+                    ? ` · ${mardCatalogLabel(t, matchSourceMardCatalogId)}`
+                    : ''}
+                </th>
+                <th className="border-b border-black/10 px-4 py-3">
+                  {matchTargetPalette.label}
+                  {matchTargetId === 'mard'
+                    ? ` · ${mardCatalogLabel(t, matchTargetMardCatalogId)}`
+                    : ''}
+                </th>
                 <th className="border-b border-black/10 px-4 py-3">{t('matchDistance')}</th>
                 <th className="border-b border-black/10 px-4 py-3">{t('matchQualityLabel')}</th>
               </tr>

@@ -10,6 +10,9 @@ import {
   type BeadPaletteId,
 } from '@/lib/beadPalettes'
 import {
+  getMardStockCatalog,
+  MARD_STOCK_CATALOGS,
+  type MardStockCatalogId,
   MARD_STOCK_SERIES,
   seriesEnabledState,
   toggleMardSeries,
@@ -22,6 +25,8 @@ type BeadInventoryPickerProps = {
   enabled: Set<string>
   onEnabledChange: (enabled: Set<string>) => void
   title?: string
+  mardCatalogId?: MardStockCatalogId
+  onMardCatalogChange?: (catalogId: MardStockCatalogId) => void
 }
 
 export function BeadInventoryPicker({
@@ -29,6 +34,8 @@ export function BeadInventoryPicker({
   enabled,
   onEnabledChange,
   title,
+  mardCatalogId = 'all',
+  onMardCatalogChange,
 }: BeadInventoryPickerProps) {
   const t = useTranslations('pattern')
   const tMardSeries = useTranslations('colors.series')
@@ -37,13 +44,29 @@ export function BeadInventoryPicker({
   const [query, setQuery] = useState('')
 
   const palette = getBeadPalette(paletteId)
-  const total = getPaletteColorCount(paletteId)
-  const summary = stockSummary(enabled, total)
   const isMard = paletteId === 'mard'
+  const activeMardCatalog = getMardStockCatalog(mardCatalogId)
+  const activeCodeSet = useMemo(
+    () => (isMard ? new Set(activeMardCatalog.codes) : null),
+    [activeMardCatalog, isMard],
+  )
+  const activeColors = useMemo(
+    () => palette.colors.filter((color) => !activeCodeSet || activeCodeSet.has(color.code)),
+    [activeCodeSet, palette.colors],
+  )
+  const total = isMard ? activeColors.length : getPaletteColorCount(paletteId)
+  const enabledInActiveCatalog = useMemo(
+    () =>
+      activeCodeSet
+        ? new Set([...enabled].filter((code) => activeCodeSet.has(code)))
+        : enabled,
+    [activeCodeSet, enabled],
+  )
+  const summary = stockSummary(enabledInActiveCatalog, total)
 
   const sortedColors = useMemo(
-    () => [...palette.colors].sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true })),
-    [palette.colors],
+    () => [...activeColors].sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true })),
+    [activeColors],
   )
 
   const filtered = useMemo(() => {
@@ -57,7 +80,9 @@ export function BeadInventoryPicker({
     if (isMard) {
       return MARD_STOCK_SERIES.map((series) => ({
         ...series,
+        codes: series.codes.filter((code) => !activeCodeSet || activeCodeSet.has(code)),
         colors: series.codes
+          .filter((code) => !activeCodeSet || activeCodeSet.has(code))
           .map((code) => palette.colors.find((c) => c.code === code))
           .filter((c): c is (typeof palette.colors)[number] => Boolean(c)),
       })).filter((s) => s.colors.length > 0)
@@ -75,7 +100,7 @@ export function BeadInventoryPicker({
       codes: colors.map((c) => c.code),
       colors,
     }))
-  }, [isMard, query, palette.colors, sortedColors])
+  }, [activeCodeSet, isMard, query, palette, sortedColors])
 
   function toggle(code: string) {
     const next = new Set(enabled)
@@ -85,7 +110,7 @@ export function BeadInventoryPicker({
   }
 
   function selectAll() {
-    onEnabledChange(new Set(palette.colors.map((c) => c.code)))
+    onEnabledChange(new Set(activeColors.map((c) => c.code)))
   }
 
   function clearAll() {
@@ -114,6 +139,12 @@ export function BeadInventoryPicker({
     } catch {
       return seriesId
     }
+  }
+
+  function selectMardCatalog(catalogId: MardStockCatalogId) {
+    const catalog = getMardStockCatalog(catalogId)
+    onMardCatalogChange?.(catalogId)
+    onEnabledChange(new Set(catalog.codes))
   }
 
   function renderSwatch(color: { code: string; hex: string }) {
@@ -167,6 +198,23 @@ export function BeadInventoryPicker({
           <p className="text-xs text-[var(--muted)]">
             {isMard ? t('stockHintMard') : t('stockHint')}
           </p>
+
+          {isMard && (
+            <label className="flex flex-col gap-1 text-xs font-medium">
+              {t('stockMardCatalogTitle')}
+              <select
+                value={mardCatalogId}
+                onChange={(event) => selectMardCatalog(event.target.value as MardStockCatalogId)}
+                className="rounded-md border border-black/15 bg-white px-2 py-1.5 text-xs font-normal"
+              >
+                {MARD_STOCK_CATALOGS.map((catalog) => (
+                  <option key={catalog.id} value={catalog.id}>
+                    {t(catalog.labelKey)} ({catalog.codes.length})
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           <div className="flex flex-wrap gap-2">
             <button

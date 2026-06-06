@@ -1,13 +1,17 @@
+import type { MardStockCatalogId } from '@/lib/mardStockSeries'
+
 const PREFS_KEY = 'craft-bead-pattern-prefs-v1'
 
 export type BeadPatternPrefs = {
   usePaletteColors: boolean
   restrictToStock: boolean
+  mardStockCatalogId: MardStockCatalogId
 }
 
 const DEFAULT_PREFS: BeadPatternPrefs = {
   usePaletteColors: true,
   restrictToStock: false,
+  mardStockCatalogId: 'all',
 }
 
 export function loadPatternPrefs(): BeadPatternPrefs {
@@ -23,6 +27,12 @@ export function loadPatternPrefs(): BeadPatternPrefs {
         typeof parsed.restrictToStock === 'boolean'
           ? parsed.restrictToStock
           : DEFAULT_PREFS.restrictToStock,
+      mardStockCatalogId:
+        parsed.mardStockCatalogId === 'all' ||
+        parsed.mardStockCatalogId === '221' ||
+        parsed.mardStockCatalogId === '264'
+          ? parsed.mardStockCatalogId
+          : DEFAULT_PREFS.mardStockCatalogId,
     }
   } catch {
     return { ...DEFAULT_PREFS }

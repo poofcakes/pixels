@@ -55,6 +55,10 @@ import {
 } from '@/lib/patternProjects'
 import { loadEnabledStock, saveEnabledStock } from '@/lib/beadStockStorage'
 import { DEFAULT_TARGET_CANVAS_WIDTH, MAX_BEAD_GRID_EDGE } from '@/lib/patternPerformance'
+import {
+  getMardStockCatalog,
+  type MardStockCatalogId,
+} from '@/lib/mardStockSeries'
 
 type BrandPaletteId = Exclude<BeadPaletteId, 'mixed'>
 
@@ -258,6 +262,7 @@ function defaultSettings(): PatternProjectSettings {
   return {
     paletteId: 'mard',
     mixedBrandIds: BEAD_PALETTES.filter((p) => p.id !== 'mixed').map((p) => p.id as BrandPaletteId),
+    mardStockCatalogId: 'all',
     paletteLimit: 50,
     targetCanvasWidth: null,
     pegboardSize: null,
@@ -314,6 +319,11 @@ function isTransparentBeadCode(code: string): boolean {
 
 function withoutTransparentBeads(codes: Iterable<string>): Set<string> {
   return new Set([...codes].filter((code) => !isTransparentBeadCode(code)))
+}
+
+function mardCatalogAllowsMixedCode(code: string, catalogCodes: ReadonlySet<string>): boolean {
+  if (!code.startsWith('MARD ')) return true
+  return catalogCodes.has(code.slice('MARD '.length))
 }
 
 function processDisplayDimensions(snapshot: ProcessSnapshot): { width: number; height: number } {
@@ -441,6 +451,7 @@ export function usePatternWorkspace() {
       ...s,
       restrictToStock: prefs.restrictToStock,
       usePaletteColors: prefs.usePaletteColors,
+      mardStockCatalogId: prefs.mardStockCatalogId,
     }))
     setProjects(loadProjects())
     const autosave = loadAutosave()
@@ -461,13 +472,37 @@ export function usePatternWorkspace() {
   )
 
   const allowedCodes = useMemo(() => {
+    const mardCatalogCodes = new Set(
+      getMardStockCatalog(settings.mardStockCatalogId ?? 'all').codes,
+    )
+
     if (settings.restrictToStock && mixedBrandCodes) {
-      return withoutTransparentBeads([...enabledStockSet].filter((code) => mixedBrandCodes.has(code)))
+      return withoutTransparentBeads(
+        [...enabledStockSet].filter(
+          (code) =>
+            mixedBrandCodes.has(code) && mardCatalogAllowsMixedCode(code, mardCatalogCodes),
+        ),
+      )
     }
+
+    if (settings.restrictToStock && settings.paletteId === 'mard') {
+      return withoutTransparentBeads([...enabledStockSet].filter((code) => mardCatalogCodes.has(code)))
+    }
+
     if (settings.restrictToStock) return withoutTransparentBeads(enabledStockSet)
-    if (mixedBrandCodes) return withoutTransparentBeads(mixedBrandCodes)
+
+    if (mixedBrandCodes) {
+      return withoutTransparentBeads(
+        [...mixedBrandCodes].filter((code) => mardCatalogAllowsMixedCode(code, mardCatalogCodes)),
+      )
+    }
+
+    if (settings.paletteId === 'mard') return withoutTransparentBeads(mardCatalogCodes)
+
     return withoutTransparentBeads(allCodes)
   }, [
+    settings.paletteId,
+    settings.mardStockCatalogId,
     settings.restrictToStock,
     mixedBrandCodes,
     enabledStockSet,

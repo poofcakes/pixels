@@ -1152,6 +1152,11 @@ export function BeadPatternGenerator({
                       paletteId={brand.id}
                       title={ws.t('brandStockTitle', { brand: brand.label })}
                       enabled={enabledForBrand(brand)}
+                      mardCatalogId={ws.settings.mardStockCatalogId}
+                      onMardCatalogChange={(catalogId) => {
+                        ws.setSettings((s) => ({ ...s, mardStockCatalogId: catalogId }))
+                        savePatternPrefs({ mardStockCatalogId: catalogId })
+                      }}
                       onEnabledChange={(next) => {
                         updateBrandStock(brand, next)
                       }}

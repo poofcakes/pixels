@@ -1,6 +1,7 @@
 import type { BeadPaletteId } from '@/lib/beadPalettes'
 import type { BeadMatchMethod } from '@/lib/beadColorMatch'
 import type { PegboardAnchor } from '@/lib/beadPattern'
+import type { MardStockCatalogId } from '@/lib/mardStockSeries'
 import {
   blobToDataUrl,
   dataUrlToBlob,
@@ -19,6 +20,7 @@ export type CellEditMap = Record<string, string | null>
 export type PatternProjectSettings = {
   paletteId: BeadPaletteId
   mixedBrandIds: BeadPaletteId[]
+  mardStockCatalogId: MardStockCatalogId
   paletteLimit: number | null
   targetCanvasWidth: number | null
   pegboardSize: number | null
