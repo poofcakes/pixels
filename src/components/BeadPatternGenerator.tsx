@@ -1209,15 +1209,9 @@ export function BeadPatternGenerator({
               palette={ws.palette}
               projectName={ws.projectName}
               gridDisplay={ws.gridDisplay}
-              usePaletteColors={ws.settings.usePaletteColors}
               cellPx={ws.settings.cellPx}
               onCellPxChange={ws.setCellPx}
               onAutoCellPxChange={ws.setAutoCellPx}
-              usePaletteColorsToggle={ws.settings.usePaletteColors}
-              onUsePaletteColorsChange={(v) => {
-                ws.setSettings((s) => ({ ...s, usePaletteColors: v }))
-                savePatternPrefs({ usePaletteColors: v })
-              }}
               showCodes={ws.settings.showCodes}
               onShowCodesChange={(v) => ws.setSettings((s) => ({ ...s, showCodes: v }))}
               showGridGuidesOnTop={ws.settings.showGridGuidesOnTop}

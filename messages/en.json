@@ -150,6 +150,8 @@
     "usePaletteColors": "Use bead colours in preview",
     "compareOriginalColors": "Compare original colours",
     "compareOriginalColorsHint": "Unedited cells show the source image colours; replaced or painted cells show bead colours. Export always uses bead colours.",
+    "compareOriginalHold": "Hold original",
+    "compareOriginalHoldHint": "Hold or hover to preview the original colours before Step 4 edits.",
     "step1Label": "Step 1",
     "step1Title": "Choose image or project",
     "step2Label": "Step 2",

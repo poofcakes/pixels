@@ -17,7 +17,15 @@ import {
   X,
 } from 'lucide-react'
 import { useTranslations } from 'next-intl'
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react'
 
 import {
   BeadCountList,
@@ -50,12 +58,9 @@ type PatternStudioProps = {
   palette: BeadPalette
   projectName: string
   gridDisplay: PatternGridDisplay
-  usePaletteColors: boolean
   cellPx: number
   onCellPxChange: (px: number) => void
   onAutoCellPxChange: (px: number) => void
-  usePaletteColorsToggle: boolean
-  onUsePaletteColorsChange: (v: boolean) => void
   showCodes: boolean
   onShowCodesChange: (v: boolean) => void
   showGridGuidesOnTop: boolean
@@ -124,12 +129,9 @@ export function PatternStudio({
   palette,
   projectName,
   gridDisplay,
-  usePaletteColors,
   cellPx,
   onCellPxChange,
   onAutoCellPxChange,
-  usePaletteColorsToggle,
-  onUsePaletteColorsChange,
   showCodes,
   onShowCodesChange,
   showGridGuidesOnTop,
@@ -171,6 +173,8 @@ export function PatternStudio({
   const [brushPickerOpen, setBrushPickerOpen] = useState(false)
   const [mergeOpen, setMergeOpen] = useState(false)
   const [buildMode, setBuildMode] = useState(false)
+  const [compareOriginalHovered, setCompareOriginalHovered] = useState(false)
+  const [compareOriginalPressed, setCompareOriginalPressed] = useState(false)
   const [extendCount, setExtendCount] = useState(1)
   const mergePopoverRef = useRef<HTMLDivElement>(null)
   const previewContainerRef = useRef<HTMLDivElement>(null)
@@ -229,14 +233,33 @@ export function PatternStudio({
   const replaceHex =
     statRows.find((r) => r.code === replaceCode)?.hex ?? brushHex
   const exportName = exportFileBaseName(projectName, { showCodes, showGridGuidesOnTop })
+  const showOriginalPattern = compareOriginalHovered || compareOriginalPressed
+  const previewPattern = showOriginalPattern ? basePattern : pattern
+  const previewUsePaletteColors = !showOriginalPattern
+  const previewGridDisplay = useMemo(
+    () => ({ ...gridDisplay, useMardColors: !showOriginalPattern }),
+    [gridDisplay, showOriginalPattern],
+  )
   const exportGridDisplay = useMemo(
     () => ({ ...gridDisplay, useMardColors: true }),
     [gridDisplay],
   )
   const hoveredCell = hovered
-    ? pattern.cells[hovered.y * pattern.width + hovered.x]
+    ? (previewPattern.cells.find((cell) => cell.x === hovered.x && cell.y === hovered.y) ?? null)
     : null
   const hoveredBead = hoveredCell?.bead ?? null
+
+  const pressCompareOriginal = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
+    event.currentTarget.setPointerCapture(event.pointerId)
+    setCompareOriginalPressed(true)
+  }, [])
+
+  const releaseCompareOriginal = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    setCompareOriginalPressed(false)
+  }, [])
 
   const handleCellAction = useCallback(
     (x: number, y: number) => {
@@ -486,6 +509,7 @@ export function PatternStudio({
               <span
                 className="size-5 shrink-0 rounded border border-black/10"
                 style={{ backgroundColor: hoveredBead?.hex ?? 'transparent' }}
+                aria-hidden
               />
               <span className="min-w-0">
                 <span className="block font-mono font-semibold">
@@ -501,6 +525,38 @@ export function PatternStudio({
                 </span>
               </span>
             </div>
+            <button
+              type="button"
+              aria-pressed={showOriginalPattern}
+              title={t('compareOriginalHoldHint')}
+              onMouseEnter={() => setCompareOriginalHovered(true)}
+              onMouseLeave={() => setCompareOriginalHovered(false)}
+              onPointerDown={pressCompareOriginal}
+              onPointerUp={releaseCompareOriginal}
+              onPointerCancel={releaseCompareOriginal}
+              onBlur={() => {
+                setCompareOriginalHovered(false)
+                setCompareOriginalPressed(false)
+              }}
+              onKeyDown={(event) => {
+                if (event.key === ' ' || event.key === 'Enter') {
+                  setCompareOriginalPressed(true)
+                }
+              }}
+              onKeyUp={(event) => {
+                if (event.key === ' ' || event.key === 'Enter') {
+                  setCompareOriginalPressed(false)
+                }
+              }}
+              className={cn(
+                'rounded-lg border px-3 py-2 text-xs font-medium transition-colors',
+                showOriginalPattern
+                  ? 'border-[var(--accent)] bg-[var(--accent)] text-white'
+                  : 'border-black/15 bg-white text-[var(--foreground)] hover:bg-black/[0.04]',
+              )}
+            >
+              {t('compareOriginalHold')}
+            </button>
           </div>
 
           <div
@@ -513,11 +569,11 @@ export function PatternStudio({
             onPointerLeave={endPaint}
           >
             <PatternPreviewGrid
-              pattern={pattern}
-              basePattern={basePattern}
+              pattern={previewPattern}
+              basePattern={showOriginalPattern ? undefined : basePattern}
               cellPx={cellPx}
-              gridDisplay={gridDisplay}
-              usePaletteColors={usePaletteColors}
+              gridDisplay={previewGridDisplay}
+              usePaletteColors={previewUsePaletteColors}
               completedCodes={completedCodes}
               selectedCode={tool === 'select' ? selectedCode : null}
               hovered={hovered}
@@ -614,18 +670,6 @@ export function PatternStudio({
           <div className="grid gap-3 xl:grid-cols-[minmax(220px,320px)_minmax(0,1fr)]">
             <div className="rounded-lg border border-black/10 bg-[#fbf7fb] p-3">
               <div className="flex flex-col gap-2 text-sm">
-                <label className="flex cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={!usePaletteColorsToggle}
-                    onChange={(e) => onUsePaletteColorsChange(!e.target.checked)}
-                    className="accent-[var(--accent)]"
-                  />
-                  {t('compareOriginalColors')}
-                </label>
-                <p className="-mt-1 text-xs text-[var(--muted)]">
-                  {t('compareOriginalColorsHint')}
-                </p>
                 <label className="flex cursor-pointer items-center gap-2">
                   <input
                     type="checkbox"
