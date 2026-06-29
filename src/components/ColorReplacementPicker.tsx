@@ -15,8 +15,10 @@ type ColorReplacementPickerProps = {
   replacingHex: string
   title?: string
   hint?: string
+  allowRemove?: boolean
   onClose: () => void
   onPick: (code: string) => void
+  onRemove?: () => void
 }
 
 function seriesIdFromCode(code: string): string {
@@ -76,8 +78,10 @@ export function ColorReplacementPicker({
   replacingHex,
   title,
   hint,
+  allowRemove = false,
   onClose,
   onPick,
+  onRemove,
 }: ColorReplacementPickerProps) {
   const t = useTranslations('pattern')
   const tMardSeries = useTranslations('colors.series')
@@ -245,6 +249,24 @@ export function ColorReplacementPicker({
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
+          {allowRemove && onRemove && (
+            <div className="mb-4">
+              <button
+                type="button"
+                onClick={() => {
+                  onRemove()
+                  onClose()
+                }}
+                className="flex w-full items-center gap-3 rounded-xl border border-dashed border-black/20 p-3 text-left transition-colors hover:border-[var(--accent)] hover:bg-black/[0.02]"
+              >
+                <span className="relative h-10 w-14 shrink-0 overflow-hidden rounded-lg border border-black/10 bg-[linear-gradient(45deg,#d7d0db_25%,transparent_25%,transparent_75%,#d7d0db_75%,#d7d0db),linear-gradient(45deg,#d7d0db_25%,transparent_25%,transparent_75%,#d7d0db_75%,#d7d0db)] bg-[length:12px_12px] bg-[position:0_0,6px_6px]" />
+                <span className="flex min-w-0 flex-col gap-0.5">
+                  <span className="text-sm font-semibold text-[#34205f]">{t('replaceRemoveOption')}</span>
+                  <span className="text-xs text-[var(--muted)]">{t('replaceRemoveHint')}</span>
+                </span>
+              </button>
+            </div>
+          )}
           {mixedGroups ? (
             <div className="flex flex-col gap-5">
               {mixedGroups.map(({ brand, series }) => (

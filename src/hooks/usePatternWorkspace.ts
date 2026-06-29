@@ -30,6 +30,7 @@ import {
   cellKey,
   extendBeadPattern,
   hasAnyEdits,
+  removeColorEdits,
   replaceColorOverrides,
   type EditSnapshot,
 } from '@/lib/patternEdits'
@@ -569,6 +570,22 @@ export function usePatternWorkspace() {
     editStrokeActiveRef.current = false
     editStrokeHasEditRef.current = false
   }, [])
+
+  const removeColor = useCallback(
+    (fromCode: string) => {
+      if (!basePattern) return
+      const currentSnapshot = latestEditSnapshotRef.current
+      pushEdit(
+        removeColorEdits(
+          basePattern,
+          currentSnapshot.colorOverrides,
+          currentSnapshot.cellEdits,
+          fromCode,
+        ),
+      )
+    },
+    [basePattern, pushEdit],
+  )
 
   const {
     paletteId,
@@ -1282,6 +1299,7 @@ export function usePatternWorkspace() {
     canUndoEdits,
     pushEdit: (overrides: Record<string, string>) =>
       pushEdit({ ...editSnapshot, colorOverrides: overrides }),
+    removeColor,
     undoEdits,
     resetEdits,
     selectedCode,

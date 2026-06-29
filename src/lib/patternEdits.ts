@@ -186,6 +186,27 @@ export function replaceColorOverrides(
   return next
 }
 
+/** Erase every bead currently showing `fromCode`. */
+export function removeColorEdits(
+  base: BeadPattern,
+  overrides: Record<string, string>,
+  cellEdits: CellEditMap,
+  fromCode: string,
+): EditSnapshot {
+  const effective = applyAllPatternEdits(base, overrides, cellEdits)
+  const nextCellEdits = { ...cellEdits }
+
+  for (const cell of effective.cells) {
+    if (!cell.bead || cell.bead.code !== fromCode) continue
+    nextCellEdits[cellKey(cell.x, cell.y)] = null
+  }
+
+  return {
+    colorOverrides: overrides,
+    cellEdits: nextCellEdits,
+  }
+}
+
 export function hasPatternEdits(overrides: Record<string, string>): boolean {
   return Object.keys(overrides).length > 0
 }

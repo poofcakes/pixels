@@ -293,6 +293,8 @@
     "replaceColor": "Replace {code}",
     "replaceDialogTitle": "Choose a replacement colour",
     "replaceDialogHint": "All beads of this colour will be replaced instantly",
+    "replaceRemoveOption": "Remove colour",
+    "replaceRemoveHint": "Clear all beads of this colour from the pattern",
     "brushDialogTitle": "Choose brush colour",
     "brushDialogHint": "Pick the bead colour used by the brush tool.",
     "replacingLabel": "Replacing:",

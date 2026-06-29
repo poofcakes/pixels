@@ -1243,6 +1243,7 @@ export function BeadPatternGenerator({
               colorOverrides={ws.editSnapshot.colorOverrides}
               hasEdits={ws.hasStep4Edits}
               onPushOverrides={ws.pushEdit}
+              onRemoveColor={ws.removeColor}
               onUndo={ws.undoEdits}
               onResetEdits={ws.resetEdits}
               canUndo={ws.canUndoEdits}

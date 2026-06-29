@@ -82,6 +82,7 @@ type PatternStudioProps = {
   colorOverrides: Record<string, string>
   hasEdits: boolean
   onPushOverrides: (overrides: Record<string, string>) => void
+  onRemoveColor: (code: string) => void
   onUndo: () => void
   onResetEdits: () => void
   canUndo: boolean
@@ -153,6 +154,7 @@ export function PatternStudio({
   colorOverrides,
   hasEdits,
   onPushOverrides,
+  onRemoveColor,
   onUndo,
   onResetEdits,
   canUndo,
@@ -759,12 +761,17 @@ export function PatternStudio({
         palette={palette}
         replacingCode={replaceCode ?? ''}
         replacingHex={replaceHex}
+        allowRemove
         onClose={() => setReplaceCode(null)}
         onPick={(code) => {
           if (!replaceCode) return
           onPushOverrides(
             replaceColorOverrides(basePattern, colorOverrides, replaceCode, code),
           )
+        }}
+        onRemove={() => {
+          if (!replaceCode) return
+          onRemoveColor(replaceCode)
         }}
       />
       <ColorReplacementPicker
